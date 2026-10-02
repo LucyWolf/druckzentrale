@@ -20,7 +20,7 @@ Download the installer for your distribution from the [Releases](https://github.
 
 The installer sets up everything with a single password prompt:
 
-- packages: Qt (PySide6), CUPS, HPLIP, SANE, sane-airscan, ipp-usb, Avahi
+- packages: Qt (PySide6, native Wayland), CUPS, HPLIP, SANE, sane-airscan, ipp-usb, Avahi
 - turns on the printing service (CUPS) and network discovery (Avahi)
 - installs the app and adds a menu entry
 
@@ -83,7 +83,7 @@ Den Installer für deine Distribution von der [Releases](https://github.com/Lucy
 
 Der Installer richtet alles mit einer einzigen Passwortabfrage ein:
 
-- Pakete: Qt (PySide6), CUPS, HPLIP, SANE, sane-airscan, ipp-usb, Avahi
+- Pakete: Qt (PySide6, nativ unter Wayland), CUPS, HPLIP, SANE, sane-airscan, ipp-usb, Avahi
 - schaltet den Druckdienst (CUPS) und die Netzwerksuche (Avahi) ein
 - installiert die App und legt einen Menüeintrag an
 

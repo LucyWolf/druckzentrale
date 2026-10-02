@@ -2,7 +2,7 @@
 # HP Druckzentrale — Linux-Installer
 # Per Doppelklick (ueber HP-Druckzentrale-*-installer.desktop) oder im Terminal.
 # Installiert alles, was die App braucht, mit einer einzigen Passwortabfrage:
-#   Pakete (Qt, CUPS, HPLIP, SANE + sane-airscan, ipp-usb, Avahi), Druck- und Netzwerkdienste,
+#   Pakete (Qt mit Wayland-Modul, CUPS, HPLIP, SANE + sane-airscan, ipp-usb, Avahi), Druck- und Netzwerkdienste,
 #   die App selbst nach ~/.local/share und einen Menueeintrag.
 # Ist sie schon installiert, fragt das Skript: aktualisieren oder deinstallieren.
 set -euo pipefail
@@ -96,19 +96,19 @@ fi
 
 # 2) Pakete je Distribution. Alles in einem Root-Schritt (ein Passwort).
 if command -v pacman >/dev/null 2>&1; then
-    PKGS="pyside6 python-pycups python-pillow cups hplip sane sane-airscan ipp-usb avahi nss-mdns"
+    PKGS="pyside6 qt6-wayland python-pycups python-pillow cups hplip sane sane-airscan ipp-usb avahi nss-mdns"
     HAVE="pacman -Q"
     INSTALL="pacman -S --needed --noconfirm"
 elif command -v apt-get >/dev/null 2>&1; then
-    PKGS="python3-pyside6.qtwidgets python3-pyside6.qtgui python3-pyside6.qtcore python3-cups python3-pil cups hplip sane-utils sane-airscan ipp-usb avahi-daemon libnss-mdns"
+    PKGS="qt6-wayland python3-pyside6.qtwidgets python3-pyside6.qtgui python3-pyside6.qtcore python3-cups python3-pil cups hplip sane-utils sane-airscan ipp-usb avahi-daemon libnss-mdns"
     HAVE="dpkg -s"
     INSTALL="env DEBIAN_FRONTEND=noninteractive apt-get install -y"
 elif command -v dnf >/dev/null 2>&1; then
-    PKGS="python3-pyside6 python3-cups python3-pillow cups hplip sane-backends sane-airscan ipp-usb avahi nss-mdns"
+    PKGS="python3-pyside6 qt6-qtwayland python3-cups python3-pillow cups hplip sane-backends sane-airscan ipp-usb avahi nss-mdns"
     HAVE="rpm -q"
     INSTALL="dnf install -y"
 elif command -v zypper >/dev/null 2>&1; then
-    PKGS="python3-pyside6 python3-pycups python3-Pillow cups hplip sane-backends sane-airscan ipp-usb avahi nss-mdns"
+    PKGS="python3-pyside6 qt6-wayland python3-pycups python3-Pillow cups hplip sane-backends sane-airscan ipp-usb avahi nss-mdns"
     HAVE="rpm -q"
     INSTALL="zypper --non-interactive install"
 else
