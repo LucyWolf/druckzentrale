@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.22"
+APP_VERSION = "1.0.23"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -138,6 +138,19 @@ def hp_uri_for(printer):
 
 # ---------- Drucker ----------
 class Printer:
+    FIELDS = ("queue", "fax_queue", "uris", "model", "info", "serial", "host", "caps")
+
+    def to_dict(self):
+        return {k: getattr(self, k) for k in self.FIELDS}
+
+    @classmethod
+    def from_dict(cls, d):
+        p = cls()
+        for k in cls.FIELDS:
+            if k in d:
+                setattr(p, k, d[k])
+        return p
+
     def __init__(self):
         self.queue = None        # CUPS-Warteschlange, falls eingerichtet
         self.fax_queue = None    # HPLIP-Fax-Warteschlange (hpfax:/...)
@@ -1172,8 +1185,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.build_overview()
         self.build_maintenance()
         self.go(self.OVERVIEW)
+        # Erst Gemerktes zeigen (Scanner vor den Kacheln), dann im Hintergrund suchen
+        self.refresh_scanners()
+        self.load_cached_printers()
         QtCore.QTimer.singleShot(200, self.search)
-        QtCore.QTimer.singleShot(400, self.refresh_scanners)
         QtCore.QTimer.singleShot(1500, self.check_update)
         if not self.settings.value("setup_done", False, type=bool) and not os.environ.get("DZ_SELFTEST"):
             QtCore.QTimer.singleShot(300, self.run_wizard)
@@ -1743,6 +1758,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.printer_list.blockSignals(False)
 
     # ----- Drucker suchen und waehlen -----
+    def load_cached_printers(self):
+        """Drucker aus dem letzten Lauf sofort zeigen; die Suche dauert einige Sekunden."""
+        try:
+            cached = [Printer.from_dict(d) for d in json.loads(self.settings.value("printers_cache", "[]") or "[]")]
+        except (ValueError, TypeError):
+            cached = []
+        if not cached:
+            return
+        self.printers = cached
+        old = self.settings.value("last_printer", "")
+        idx = next((i for i, p in enumerate(cached) if printer_key(p) == old), 0)
+        self.current = cached[idx]
+        self.fill_printer_list()
+        self.select(idx)
+
+    @staticmethod
+    def printers_sig(printers):
+        return [(printer_key(p), p.queue, p.fax_queue, sorted(p.uris), p.host) for p in printers]
+
     def search(self):
         self.act_search.setEnabled(False)
         self.status.showMessage("Suche Drucker (USB und Netzwerk)…")
@@ -1751,6 +1785,21 @@ class MainWindow(QtWidgets.QMainWindow):
             self.act_search.setEnabled(True)
             if not ok:
                 self.status.showMessage(f"Suche fehlgeschlagen: {res}")
+                return
+            if res:
+                for p in res:   # bekannte Faehigkeiten nicht neu abfragen
+                    known = next((q for q in self.printers if printer_key(q) == printer_key(p)), None)
+                    if known is not None and p.caps is None:
+                        p.caps = known.caps
+                self.settings.setValue("printers_cache", json.dumps([p.to_dict() for p in res]))
+            elif self.printers:
+                self.status.showMessage("Drucker gerade nicht erreichbar – ist er eingeschaltet?")
+                return
+            if self.printers and self.printers_sig(res) == self.printers_sig(self.printers):
+                # nichts Neues: Anzeige nicht neu aufbauen, nur die frischen Daten uebernehmen
+                for old_p, new_p in zip(self.printers, res):
+                    old_p.__dict__.update({k: v for k, v in new_p.__dict__.items() if v is not None})
+                self.status.showMessage(f"{len(res)} Drucker gefunden.")
                 return
             old = printer_key(self.current) if self.current else self.settings.value("last_printer", "")
             self.printers = res
@@ -1999,6 +2048,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         def done(ok, res):
             p.caps = res if ok and res else {"fax": 0, "scan": 0}
+            if ok and res and p in self.printers:
+                self.settings.setValue("printers_cache", json.dumps([q.to_dict() for q in self.printers]))
             if p is self.current:
                 self.update_actions()
                 self.fill_features()
