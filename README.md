@@ -26,7 +26,7 @@ The installer sets up everything with a single password prompt:
 - turns on the printing service (CUPS) and network discovery (Avahi)
 - installs the app and adds a menu entry
 
-Running it again offers **Update** or **Uninstall**. After that, updates come through the app (sidebar, or *Maintenance → Check for updates*).
+Running it again offers **Update** or **Uninstall**. After that, updates come through the app (*Version · Info* at the bottom left).
 
 <details>
 <summary>Prefer the terminal?</summary>
@@ -91,7 +91,7 @@ Der Installer richtet alles mit einer einzigen Passwortabfrage ein:
 - schaltet den Druckdienst (CUPS) und die Netzwerksuche (Avahi) ein
 - installiert die App und legt einen Menüeintrag an
 
-Erneut gestartet bietet er **Aktualisieren** oder **Deinstallieren** an. Danach kommen Updates über die App (Seitenleiste oder *Wartung → Nach Updates suchen*).
+Erneut gestartet bietet er **Aktualisieren** oder **Deinstallieren** an. Danach kommen Updates über die App (*Version · Info* links unten).
 
 <details>
 <summary>Lieber per Terminal?</summary>

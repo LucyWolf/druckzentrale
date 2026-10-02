@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.21"
+APP_VERSION = "1.0.22"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -1552,14 +1552,6 @@ class MainWindow(QtWidgets.QMainWindow):
         r.addStretch(1)
         fl2.addLayout(r)
         self.mt_body.addWidget(f2)
-        f3, fl3 = group("Programm")
-        r = QtWidgets.QHBoxLayout()
-        r.addWidget(QtWidgets.QLabel(f"{APP_NAME} {APP_VERSION}"), 1)
-        u = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("system-software-update"), "Nach Updates suchen")
-        u.clicked.connect(self.manual_update)
-        r.addWidget(u)
-        fl3.addLayout(r)
-        self.mt_body.addWidget(f3)
         self.mt_body.addStretch(1)
         self.refresh_jobs()
 
