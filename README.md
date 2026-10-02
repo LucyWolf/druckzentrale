@@ -4,7 +4,7 @@
 
 # HP Druckzentrale
 
-Print, scan, check ink levels and fax with **HP printers on Linux**, all in one window. Works over **USB, LAN and Wi-Fi**.
+Print, scan, check ink levels and fax with **HP printers on Linux**, all in one window. Unofficial – not made by or affiliated with HP. Works over **USB, LAN and Wi-Fi**.
 
 The app builds on the standard Linux tools: **CUPS** for printing and status, **HPLIP** (HP's own Linux software) for HP-specific devices, ink and fax, and **SANE** with **sane-airscan** and **ipp-usb** for scanning without drivers.
 
@@ -67,7 +67,7 @@ License: MIT, see [LICENSE](LICENSE).
 
 # HP Druckzentrale
 
-Drucken, Scannen, Tintenstand und Fax für **HP-Drucker unter Linux**, alles in einem Fenster. Funktioniert über **USB, LAN und WLAN**.
+Drucken, Scannen, Tintenstand und Fax für **HP-Drucker unter Linux**, alles in einem Fenster. Inoffiziell – nicht von HP und nicht mit HP verbunden. Funktioniert über **USB, LAN und WLAN**.
 
 Die App baut auf den Linux-Standardwerkzeugen auf: **CUPS** für Drucken und Status, **HPLIP** (HPs eigene Linux-Software) für HP-spezifische Geräte, Tinte und Fax, und **SANE** mit **sane-airscan** und **ipp-usb** für Scannen ohne Treiber.
 

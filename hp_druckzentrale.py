@@ -26,7 +26,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "HP Druckzentrale"
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 UPDATE_REPO = "LucyWolf/hp-druckzentrale"
 INSTALL_DIR = os.path.expanduser("~/.local/share/hp-druckzentrale")
 HPLIP_DIR = "/usr/share/hplip"
@@ -49,7 +49,10 @@ def is_hp(text):
 
 
 def norm(text):
-    return re.sub(r"[^a-z0-9]", "", (text or "").lower().replace("hewlett-packard", "hp").replace("hewlett packard", "hp"))
+    t = (text or "").lower().replace("hewlett-packard", "hp").replace("hewlett packard", "hp")
+    t = re.sub(r"\s+-\s+(ipp everywhere|hpcups.*|hplip.*|driverless.*)$", "", t)   # Treiberzusatz der Warteschlange
+    t = re.sub(r"^hp\s+", "", t)
+    return re.sub(r"[^a-z0-9]", "", t)
 
 
 class Bridge(QtCore.QObject):
@@ -208,7 +211,12 @@ def discover():
 
     def find(uri, model):
         serial, uuid, host = uri_ids(uri)
+        name = service_name(uri)
         for p in printers:
+            if uuid and any(uuid in u for u in p.uris):
+                return p
+            if name and any(service_name(u) == name for u in p.uris):
+                return p
             if serial and serial == p.serial:
                 return p
             if host and host == p.host and host not in ("localhost", "127.0.0.1") and not uri.startswith("usb"):
@@ -710,78 +718,628 @@ class SetupWizard(QtWidgets.QDialog):
                    "\n\nTestseite gesendet." if ok else f"\n\nTestseite fehlgeschlagen: {res}")))
 
 
+# ---------- Optik (angelehnt an HP Smart: schwarz, dunkle Karten, blau-violetter Akzent) ----------
+BG = "#000000"
+CARD = "#26262F"
+CARD_H = "#31313C"
+ACC = "#5B6CF0"
+ACC_H = "#6E7BFF"
+ACC_T = "#7C88FF"
+DIM = "#A6A6B3"
+FIELD = "#1B1B22"
+LINE = "#3A3A46"
+
+QSS = f"""
+QMainWindow, QWidget#page, QScrollArea, QScrollArea > QWidget > QWidget {{ background: {BG}; }}
+QWidget {{ color: #FFFFFF; font-size: 14px; }}
+QLabel {{ background: transparent; }}
+QLabel#dim {{ color: {DIM}; }}
+QLabel#accent {{ color: {ACC_T}; }}
+QFrame#card, QFrame#tile {{ background: {CARD}; border-radius: 18px; }}
+QFrame#tile:hover, QFrame#printercard:hover {{ background: {CARD_H}; }}
+QFrame#printercard {{ background: {CARD}; border-radius: 22px; }}
+QFrame#row:hover {{ background: {CARD_H}; border-radius: 10px; }}
+QFrame#sep {{ background: {LINE}; max-height: 1px; min-height: 1px; }}
+QFrame#chip {{ background: #1E2050; border: 1.5px solid {ACC}; border-radius: 18px; }}
+QFrame#pill {{ background: {CARD}; border-radius: 24px; }}
+QPushButton {{ background: {CARD}; color: #FFFFFF; border: none; border-radius: 10px; padding: 8px 16px; }}
+QPushButton:hover {{ background: {CARD_H}; }}
+QPushButton:disabled {{ color: #666672; }}
+QFrame#card QPushButton {{ background: #3A3A48; }}
+QFrame#card QPushButton:hover {{ background: #464656; }}
+QPushButton#primary, QFrame#card QPushButton#primary {{ background: {ACC}; border-radius: 18px; padding: 8px 20px; font-weight: bold; }}
+QPushButton#primary:hover, QFrame#card QPushButton#primary:hover {{ background: {ACC_H}; }}
+QPushButton#round {{ border-radius: 20px; min-width: 40px; max-width: 40px; min-height: 40px; max-height: 40px;
+                     padding: 0; font-size: 18px; }}
+QPushButton#roundacc {{ background: {ACC}; border-radius: 20px; min-width: 40px; max-width: 40px; min-height: 40px;
+                        max-height: 40px; padding: 0; }}
+QComboBox, QLineEdit, QSpinBox, QListWidget, QPlainTextEdit {{ background: {FIELD}; color: #FFFFFF;
+    border: 1px solid {LINE}; border-radius: 8px; padding: 6px; }}
+QComboBox QAbstractItemView {{ background: {CARD}; color: #FFFFFF; selection-background-color: {ACC}; }}
+QListWidget::item:selected {{ background: {ACC}; }}
+QCheckBox {{ color: #FFFFFF; }}
+QProgressBar {{ background: {FIELD}; border: none; border-radius: 4px; height: 8px; }}
+QProgressBar::chunk {{ background: {ACC}; border-radius: 4px; }}
+QStatusBar {{ background: {BG}; color: {DIM}; }}
+QMenu {{ background: {CARD}; color: #FFFFFF; border: 1px solid {LINE}; }}
+QMenu::item:selected {{ background: {ACC}; }}
+QScrollBar:vertical {{ background: {BG}; width: 10px; }}
+QScrollBar::handle:vertical {{ background: {LINE}; border-radius: 5px; min-height: 30px; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
+QToolBar {{ background: {BG}; border: none; }}
+"""
+
+INK_ORDER = ["M", "C", "Y", "K"]
+
+
+def ink_letter(m):
+    n = (m.get("name") or "").lower()
+    for keys, letter in ((("magenta",), "M"), (("cyan",), "C"), (("yellow", "gelb"), "Y"),
+                         (("black", "schwarz"), "K"), (("tri", "color", "farb"), "CMY")):
+        if any(k in n for k in keys):
+            return letter
+    return (ink_name(m.get("name"))[:2] or "?").upper()
+
+
+class InkTubes(QtWidgets.QWidget):
+    """Senkrechte Tintenroehrchen wie in HP Smart (M C Y K), darunter Buchstabe und Farbpunkt."""
+
+    def __init__(self, markers, big=True):
+        super().__init__()
+        self.markers = sorted(markers, key=lambda m: INK_ORDER.index(ink_letter(m)) if ink_letter(m) in INK_ORDER else 9)
+        self.tw, self.th = (24, 80) if big else (18, 58)
+        self.setFixedSize(max(1, len(self.markers)) * (self.tw + 8) + 4, self.th + 34)
+        self.setToolTip("\n".join(f"{ink_name(m['name'])}: " + (f"{m['level']} %" if m["level"] >= 0 else "unbekannt")
+                                  for m in self.markers))
+
+    def paintEvent(self, e):
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        for i, m in enumerate(self.markers):
+            x = 2 + i * (self.tw + 8)
+            tube = QtCore.QRectF(x, 2, self.tw, self.th)
+            path = QtGui.QPainterPath()
+            path.addRoundedRect(tube, self.tw / 2, self.tw / 2)
+            p.setPen(QtCore.Qt.NoPen)
+            p.setBrush(QtGui.QColor("#E9E9F0"))
+            p.drawPath(path)
+            level = m["level"]
+            frac = level / 100 if level >= 0 else (0.5 if level == -3 else 0)
+            if frac > 0:
+                p.save()
+                p.setClipPath(path)
+                fill = QtCore.QRectF(x, 2 + self.th * (1 - frac), self.tw, self.th * frac)
+                cols = marker_color(m)
+                if len(cols) == 1:
+                    p.setBrush(QtGui.QColor(cols[0]))
+                else:
+                    g = QtGui.QLinearGradient(fill.topLeft(), fill.topRight())
+                    for j, c in enumerate(cols):
+                        g.setColorAt(j / max(1, len(cols) - 1), QtGui.QColor(c))
+                    p.setBrush(g)
+                p.drawRect(fill)
+                p.restore()
+            dot = QtGui.QColor(marker_color(m)[0])
+            p.setBrush(dot)
+            p.drawEllipse(QtCore.QPointF(x + self.tw / 2, self.th + 9), 2.5, 2.5)
+            p.setPen(QtGui.QColor("#FFFFFF"))
+            f = p.font()
+            f.setBold(True)
+            f.setPointSize(9)
+            p.setFont(f)
+            p.drawText(QtCore.QRectF(x - 6, self.th + 13, self.tw + 12, 18), QtCore.Qt.AlignCenter, ink_letter(m))
+
+
+def chip(text):
+    f = QtWidgets.QFrame()
+    f.setObjectName("chip")
+    lay = QtWidgets.QHBoxLayout(f)
+    lay.setContentsMargins(12, 6, 16, 6)
+    icon = QtWidgets.QLabel("i")
+    icon.setAlignment(QtCore.Qt.AlignCenter)
+    icon.setFixedSize(20, 20)
+    icon.setStyleSheet(f"background: {ACC}; border-radius: 10px; font-weight: bold; font-size: 12px;")
+    lab = QtWidgets.QLabel(text)
+    lab.setWordWrap(True)
+    lab.setStyleSheet("font-size: 13px;")
+    lay.addWidget(icon)
+    lay.addWidget(lab, 1)
+    f.setMaximumWidth(300)
+    return f
+
+
+class Clickable(QtWidgets.QFrame):
+    clicked = QtCore.Signal()
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == QtCore.Qt.LeftButton and self.rect().contains(e.position().toPoint()):
+            self.clicked.emit()
+
+
+def tile(title, desc, icon_name, cb):
+    t = Clickable()
+    t.setObjectName("tile")
+    t.setCursor(QtCore.Qt.PointingHandCursor)
+    t.setMinimumHeight(130)
+    lay = QtWidgets.QHBoxLayout(t)
+    lay.setContentsMargins(28, 18, 22, 18)
+    col = QtWidgets.QVBoxLayout()
+    h = QtWidgets.QLabel(title)
+    h.setStyleSheet("font-size: 21px; font-weight: bold;")
+    d = QtWidgets.QLabel(desc)
+    d.setWordWrap(True)
+    d.setStyleSheet("color: #D6D6DE; font-size: 13px;")
+    col.addStretch(1)
+    col.addWidget(h)
+    col.addWidget(d)
+    col.addStretch(1)
+    lay.addLayout(col, 1)
+    ic = QtWidgets.QLabel()
+    ic.setPixmap(QtGui.QIcon.fromTheme(icon_name).pixmap(54, 54))
+    lay.addWidget(ic)
+    t.clicked.connect(cb)
+    return t
+
+
+def section(title, rows):
+    """Karte mit Ueberschrift und Zeilen (Symbol, Text, rechter Text, Aktion) wie in HP Smart."""
+    card = QtWidgets.QFrame()
+    card.setObjectName("card")
+    lay = QtWidgets.QVBoxLayout(card)
+    lay.setContentsMargins(0, 18, 0, 10)
+    lay.setSpacing(0)
+    h = QtWidgets.QLabel(title)
+    h.setStyleSheet("font-size: 24px; font-weight: bold; padding: 0 30px 14px 30px;")
+    lay.addWidget(h)
+    labels = {}
+    for icon_name, text, right, cb in rows:
+        sep = QtWidgets.QFrame()
+        sep.setObjectName("sep")
+        lay.addWidget(sep)
+        r = Clickable()
+        r.setObjectName("row")
+        r.setCursor(QtCore.Qt.PointingHandCursor)
+        rl = QtWidgets.QHBoxLayout(r)
+        rl.setContentsMargins(30, 16, 30, 16)
+        ic = QtWidgets.QLabel()
+        ic.setPixmap(QtGui.QIcon.fromTheme(icon_name).pixmap(20, 20))
+        rl.addWidget(ic)
+        rl.addSpacing(10)
+        rl.addWidget(QtWidgets.QLabel(text), 1)
+        rlab = QtWidgets.QLabel(right or "→")
+        rlab.setObjectName("accent" if right else "")
+        rlab.setStyleSheet("font-size: 18px;" if not right else "")
+        rl.addWidget(rlab)
+        labels[text] = rlab
+        r.clicked.connect(cb)
+        lay.addWidget(r)
+    card.labels = labels
+    return card
+
+
+def printer_key(p):
+    for u in p.uris:
+        m = re.search(r"uuid=([^&]+)", u)
+        if m:
+            return m.group(1)
+    return p.serial or p.host or p.uri
+
+
+CACHE_DIR = os.path.expanduser("~/.cache/hp-druckzentrale")
+
+
+def printer_image(p):
+    """Bild des Druckers von seiner eigenen Weboberflaeche (HP-Geraete liefern dort ein Foto)."""
+    key = re.sub(r"[^A-Za-z0-9_-]", "_", printer_key(p))[:80]
+    path = os.path.join(CACHE_DIR, f"{key}.png")
+    if os.path.exists(path):
+        return path
+    if not re.fullmatch(r"[\d.]+", p.host or ""):
+        return None
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE   # Drucker haben selbst ausgestellte Zertifikate
+    for url in (f"https://{p.host}/webApps/images/printer.png", f"https://{p.host}/images/printer.png",
+                f"http://{p.host}/images/printer.png"):
+        try:
+            with urllib.request.urlopen(url, timeout=6, context=ctx if url.startswith("https") else None) as r:
+                data = r.read()
+            if data[:8] == b"\x89PNG\r\n\x1a\n":
+                os.makedirs(CACHE_DIR, exist_ok=True)
+                with open(path, "wb") as f:
+                    f.write(data)
+                return path
+        except Exception:
+            continue
+    return None
+
+
+def page_wrap(title, inner):
+    """Unterseite: Ueberschrift und Inhalt in einer Karte, mittig mit begrenzter Breite."""
+    page = QtWidgets.QWidget()
+    page.setObjectName("page")
+    outer = QtWidgets.QHBoxLayout(page)
+    outer.addStretch(1)
+    col = QtWidgets.QVBoxLayout()
+    h = QtWidgets.QLabel(title)
+    h.setStyleSheet("font-size: 34px; font-weight: bold; padding: 6px 0 12px 0;")
+    col.addWidget(h)
+    card = QtWidgets.QFrame()
+    card.setObjectName("card")
+    cl = QtWidgets.QVBoxLayout(card)
+    cl.setContentsMargins(24, 20, 24, 20)
+    cl.addWidget(inner)
+    col.addWidget(card, 1)
+    w = QtWidgets.QWidget()
+    w.setLayout(col)
+    w.setMaximumWidth(900)
+    w.setMinimumWidth(640)
+    outer.addWidget(w, 6)
+    outer.addStretch(1)
+    return page
+
+
 class MainWindow(QtWidgets.QMainWindow):
+    HOME, PRINTERS, PRINT, SCAN, FAX = range(5)
+
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
-        self.resize(1100, 720)
+        self.setWindowTitle(APP_NAME)
+        self.resize(1280, 860)
+        self.setStyleSheet(QSS)
         self.printers = []
         self.current = None
         self.scanners = []
         self.pages = []          # PNG-Dateien der aktuellen Scans
         self.scan_dpi = "300"
+        self.status_cache = {}   # Drucker-Schluessel -> letzter Status
+        self.settings = QtCore.QSettings("hp-druckzentrale", "hp-druckzentrale")
 
-        tb = self.addToolBar("Werkzeuge")
-        tb.setMovable(False)
-        self.act_search = tb.addAction(QtGui.QIcon.fromTheme("view-refresh"), "Drucker suchen", self.search)
-        self.act_setup = tb.addAction(QtGui.QIcon.fromTheme("list-add"), "Einrichten", self.setup_current)
-        self.act_test = tb.addAction(QtGui.QIcon.fromTheme("document-print"), "Testseite", self.test_page)
-        self.act_web = tb.addAction(QtGui.QIcon.fromTheme("internet-web-browser"), "Weboberfläche", self.open_web)
-        self.act_remove = tb.addAction(QtGui.QIcon.fromTheme("list-remove"), "Entfernen", self.remove_current)
-        tb.addAction(QtGui.QIcon.fromTheme("tools-wizard"), "Einrichtung", self.run_wizard)
-        spacer = QtWidgets.QWidget()
-        spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
-        tb.addWidget(spacer)
-        self.act_update = tb.addAction(QtGui.QIcon.fromTheme("system-software-update"), "Nach Updates suchen",
-                                       self.update_clicked)
+        # Aktionen (Knoepfe und Zeilen loesen sie aus)
+        self.act_search = QtGui.QAction("Drucker suchen", self, triggered=self.search)
+        self.act_setup = QtGui.QAction("Einrichten", self, triggered=self.setup_current)
+        self.act_test = QtGui.QAction("Testseite", self, triggered=self.test_page)
+        self.act_web = QtGui.QAction("Weboberfläche", self, triggered=self.open_web)
+        self.act_remove = QtGui.QAction("Entfernen", self, triggered=self.remove_current)
+        self.act_update = QtGui.QAction("Nach Updates suchen", self, triggered=self.update_clicked)
         self.update_tag = None
 
-        split = QtWidgets.QSplitter()
-        self.setCentralWidget(split)
-        self.list = QtWidgets.QListWidget()
-        self.list.setMinimumWidth(260)
-        self.list.currentRowChanged.connect(self.select)
-        split.addWidget(self.list)
+        central = QtWidgets.QWidget()
+        central.setObjectName("page")
+        self.setCentralWidget(central)
+        root = QtWidgets.QVBoxLayout(central)
+        root.setContentsMargins(24, 14, 24, 0)
+        root.addLayout(self.build_topbar())
+        self.banner = QtWidgets.QVBoxLayout()
+        root.addLayout(self.banner)
+        self.stack = QtWidgets.QStackedWidget()
+        root.addWidget(self.stack, 1)
 
-        right = QtWidgets.QWidget()
-        rl = QtWidgets.QVBoxLayout(right)
-        self.head = QtWidgets.QLabel("Kein Drucker gewählt")
-        self.head.setStyleSheet("font-size: 18px; font-weight: bold;")
-        self.sub = QtWidgets.QLabel("")
-        self.sub.setWordWrap(True)
-        rl.addWidget(self.head)
-        rl.addWidget(self.sub)
-        self.ink_box = QtWidgets.QGroupBox("Tintenstand")
-        self.ink_layout = QtWidgets.QVBoxLayout(self.ink_box)
-        rl.addWidget(self.ink_box)
-        self.tabs = QtWidgets.QTabWidget()
-        rl.addWidget(self.tabs, 1)
-        split.addWidget(right)
-        split.setStretchFactor(1, 1)
-
+        self.home_scroll, self.home_body = self.scroll_page()
+        self.list_scroll, self.list_body = self.scroll_page()
+        self.stack.addWidget(self.home_scroll)
+        self.stack.addWidget(self.list_scroll)
         self.tab_print = self.build_print_tab()
         self.tab_scan = self.build_scan_tab()
         self.tab_fax = self.build_fax_tab()
-        self.tabs.addTab(self.tab_print, QtGui.QIcon.fromTheme("document-print"), "Drucken")
-        self.tabs.addTab(self.tab_scan, QtGui.QIcon.fromTheme("scanner"), "Scannen")
-        self.fax_index = self.tabs.addTab(self.tab_fax, QtGui.QIcon.fromTheme("printer"), "Fax")
+        self.print_page = page_wrap("Drucken", self.tab_print)
+        self.stack.addWidget(self.print_page)
+        self.stack.addWidget(page_wrap("Scannen", self.tab_scan))
+        self.stack.addWidget(page_wrap("Faxen", self.tab_fax))
 
         self.status = self.statusBar()
         self.check_dependencies()
-        self.update_actions()
+        self.build_home()
+        self.go(self.PRINTERS)
         QtCore.QTimer.singleShot(200, self.search)
         QtCore.QTimer.singleShot(400, self.refresh_scanners)
         QtCore.QTimer.singleShot(1500, self.check_update)
-        self.settings = QtCore.QSettings("hp-druckzentrale", "hp-druckzentrale")
         if not self.settings.value("setup_done", False, type=bool) and not os.environ.get("HPDZ_SELFTEST"):
             QtCore.QTimer.singleShot(300, self.run_wizard)
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.refresh_status)
         self.timer.start(30000)
 
-    # ----- Einrichtungs-Assistent (erster Start, oder ueber "Einrichtung") -----
+    # ----- Rahmen -----
+    def build_topbar(self):
+        bar = QtWidgets.QHBoxLayout()
+        self.back_btn = QtWidgets.QPushButton("←")
+        self.back_btn.setObjectName("round")
+        self.back_btn.setToolTip("Alle Drucker")
+        self.back_btn.clicked.connect(self.back)
+        bar.addWidget(self.back_btn)
+        bar.addStretch(1)
+        pill = QtWidgets.QFrame()
+        pill.setObjectName("pill")
+        pl = QtWidgets.QHBoxLayout(pill)
+        pl.setContentsMargins(4, 4, 4, 4)
+        home = QtWidgets.QPushButton()
+        home.setObjectName("roundacc")
+        self.set_icon(home, "printer", "🖨")
+        home.setToolTip("Mein Drucker")
+        home.clicked.connect(lambda: self.go(self.HOME if self.current else self.PRINTERS))
+        pl.addWidget(home)
+        bar.addWidget(pill)
+        bar.addStretch(1)
+        self.update_btn = QtWidgets.QPushButton()
+        self.update_btn.setObjectName("primary")
+        self.update_btn.clicked.connect(self.update_clicked)
+        self.update_btn.hide()
+        bar.addWidget(self.update_btn)
+        add = QtWidgets.QPushButton("+")
+        add.setObjectName("round")
+        add.setToolTip("Drucker hinzufügen")
+        add.clicked.connect(self.run_wizard)
+        bar.addWidget(add)
+        self.bell = QtWidgets.QPushButton()
+        self.bell.setObjectName("round")
+        self.set_icon(self.bell, "notifications", "🔔")
+        self.bell.setToolTip("Meldungen des Druckers")
+        self.bell.clicked.connect(self.show_messages)
+        bar.addWidget(self.bell)
+        return bar
+
+    @staticmethod
+    def set_icon(btn, name, fallback):
+        icon = QtGui.QIcon.fromTheme(name)
+        if icon.isNull():
+            btn.setText(fallback)   # ohne Symbolthema (z.B. andere Desktops) wenigstens ein Zeichen
+        else:
+            btn.setIcon(icon)
+
+    def scroll_page(self):
+        sc = QtWidgets.QScrollArea()
+        sc.setWidgetResizable(True)
+        sc.setFrameShape(QtWidgets.QFrame.NoFrame)
+        holder = QtWidgets.QWidget()
+        holder.setObjectName("page")
+        outer = QtWidgets.QHBoxLayout(holder)
+        outer.addStretch(1)
+        body = QtWidgets.QVBoxLayout()
+        w = QtWidgets.QWidget()
+        w.setLayout(body)
+        w.setMaximumWidth(1100)
+        outer.addWidget(w, 10)
+        outer.addStretch(1)
+        sc.setWidget(holder)
+        return sc, body
+
+    def go(self, page):
+        self.stack.setCurrentIndex(page)
+        self.back_btn.setToolTip("Alle Drucker" if page == self.HOME else "Zurück")
+
+    def back(self):
+        page = self.stack.currentIndex()
+        if page == self.HOME:
+            self.go(self.PRINTERS)
+        elif page == self.PRINTERS and self.current:
+            self.go(self.HOME)
+        elif page in (self.PRINT, self.SCAN, self.FAX):
+            self.go(self.HOME)
+
+    @staticmethod
+    def clear(layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                MainWindow.clear(item.layout())
+
+    def nickname(self, p):
+        return self.settings.value(f"nick/{printer_key(p)}", "") or "Mein Drucker"
+
+    # ----- Druckerkarte (Startseite und Liste) -----
+    def printer_card(self, p, big):
+        card = Clickable()
+        card.setObjectName("printercard")
+        lay = QtWidgets.QHBoxLayout(card)
+        lay.setContentsMargins(34, 26, 34, 26)
+        left = QtWidgets.QVBoxLayout()
+        name = QtWidgets.QLabel(self.nickname(p))
+        name.setStyleSheet(f"font-size: {48 if big else 30}px; font-weight: bold;")
+        model = QtWidgets.QLabel((p.model or p.info or p.uri).replace(" - IPP Everywhere", ""))
+        model.setObjectName("accent")
+        model.setStyleSheet("font-size: 20px;" if big else "font-size: 16px;")
+        left.addWidget(name)
+        left.addWidget(model)
+        left.addSpacing(14)
+        bottom = QtWidgets.QHBoxLayout()
+        ink_col = QtWidgets.QVBoxLayout()
+        ink_holder = QtWidgets.QHBoxLayout()
+        ink_col.addLayout(ink_holder)
+        cap = QtWidgets.QLabel("Geschätzte Füllstände")
+        cap.setObjectName("dim")
+        cap.setStyleSheet("font-size: 11px;")
+        ink_col.addWidget(cap)
+        bottom.addLayout(ink_col)
+        bottom.addSpacing(18)
+        chips = QtWidgets.QVBoxLayout()
+        bottom.addLayout(chips)
+        bottom.addStretch(1)
+        left.addLayout(bottom)
+        if not big:
+            state = QtWidgets.QHBoxLayout()
+            info = QtWidgets.QLabel(f"{p.connection} · " + ("eingerichtet" if p.queue else "noch nicht eingerichtet"))
+            info.setObjectName("dim")
+            state.addWidget(info)
+            if not p.queue:
+                b = QtWidgets.QPushButton("Einrichten")
+                b.setObjectName("primary")
+                b.clicked.connect(lambda _=False, pp=p: self.setup_printer_from_list(pp))
+                state.addWidget(b)
+            state.addStretch(1)
+            left.addSpacing(8)
+            left.addLayout(state)
+        left.addStretch(1)
+        lay.addLayout(left, 1)
+        img = QtWidgets.QLabel()
+        img.setMinimumSize(300 if big else 200, 220 if big else 150)
+        img.setAlignment(QtCore.Qt.AlignCenter)
+        img.setPixmap(QtGui.QIcon.fromTheme("printer").pixmap(160 if big else 110))
+        lay.addWidget(img)
+        card.ink_holder, card.chips, card.img = ink_holder, chips, img
+        card.big = big
+
+        def got_image(ok, path, img=img, big=big):
+            if ok and path:
+                pix = QtGui.QPixmap(path)
+                if not pix.isNull():
+                    size = 320 if big else 200
+                    img.setPixmap(pix.scaled(size, size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation))
+        bg(lambda: printer_image(p), got_image)
+        cached = self.status_cache.get(printer_key(p))
+        if cached:
+            self.fill_status(card, p, cached)
+        return card
+
+    def fill_status(self, card, p, res):
+        self.clear(card.ink_holder)
+        self.clear(card.chips)
+        if res.get("markers"):
+            card.ink_holder.addWidget(InkTubes(res["markers"], card.big))
+        else:
+            lab = QtWidgets.QLabel("Kein Tintenstand" if (p.queue or p.host or hp_uri_for(p)) else "Erst einrichten")
+            lab.setObjectName("dim")
+            card.ink_holder.addWidget(lab)
+        texts = [reason_text(r) for r in res.get("reasons", [])]
+        if res.get("state") and res["state"] != "Bereit":
+            texts.insert(0, f"Der Drucker ist {res['state'].lower()}.")
+        for t in texts[:3]:
+            card.chips.addWidget(chip(t))
+        card.chips.addStretch(1)
+
+    # ----- Startseite -----
+    def build_home(self):
+        self.clear(self.home_body)
+        p = self.current
+        if not p:
+            return
+        self.home_card = self.printer_card(p, big=True)
+        self.home_body.addWidget(self.home_card)
+        self.home_body.addSpacing(18)
+        grid = QtWidgets.QGridLayout()
+        grid.setSpacing(14)
+        tiles = [tile("Scannen", "Mit dem Drucker scannen und als PDF oder Bild speichern.", "scanner",
+                      lambda: self.go(self.SCAN)),
+                 tile("Dokumente drucken", "PDFs und andere Dokumente drucken.", "x-office-document",
+                      lambda: self.open_print(False)),
+                 tile("Fotos drucken", "Bilder drucken, auch auf Fotopapier.", "image-x-generic",
+                      lambda: self.open_print(True))]
+        self.fax_tile = tile("Faxen", "Dokumente oder gescannte Seiten als Fax senden.", "mail-send",
+                             lambda: self.go(self.FAX))
+        tiles.append(self.fax_tile)
+        if not p.queue:
+            tiles.insert(0, tile("Drucker einrichten", "Einmalig einrichten, danach kannst du drucken.", "list-add",
+                                 self.setup_current))
+        for i, t in enumerate(tiles):
+            grid.addWidget(t, i // 2, i % 2)
+        self.home_body.addLayout(grid)
+        self.home_body.addSpacing(18)
+        uri = hp_uri_for(p)
+        diag = [("document-print", "Testseite drucken", "", self.test_page)]
+        if uri:
+            diag += [("edit-clear", "Druckköpfe reinigen", "", lambda: self.hplip_tool("hp-clean")),
+                     ("transform-move", "Druckköpfe ausrichten", "", lambda: self.hplip_tool("hp-align"))]
+        diag.append(("view-refresh", "Status aktualisieren", "", self.refresh_status))
+        self.home_body.addWidget(section("Diagnose", diag))
+        self.home_body.addSpacing(14)
+        self.nick_section = section("Personalisierung", [("document-edit", "Spitzname", self.nickname(p) + "  ✎",
+                                                          self.rename)])
+        self.home_body.addWidget(self.nick_section)
+        self.home_body.addSpacing(14)
+        settings_rows = []
+        if p.host:
+            settings_rows.append(("internet-web-browser", "Weboberfläche des Druckers", "", self.open_web))
+        settings_rows.append(("tools-wizard", "Einrichtungs-Assistent", "", self.run_wizard))
+        if p.queue:
+            settings_rows.append(("list-remove", "Drucker von diesem PC entfernen", "", self.remove_current))
+        self.home_body.addWidget(section("Druckereinstellungen", settings_rows))
+        self.home_body.addSpacing(30)
+        self.update_actions()
+
+    def open_print(self, photos):
+        self.photo_mode = photos
+        if photos:
+            i = self.media.findData("na_index-4x6_4x6in")
+            if i >= 0:
+                self.media.setCurrentIndex(i)
+        self.go(self.PRINT)
+
+    def rename(self):
+        p = self.current
+        if not p:
+            return
+        name, ok = QtWidgets.QInputDialog.getText(self, "Spitzname", "Name für diesen Drucker:", text=self.nickname(p))
+        if ok:
+            self.settings.setValue(f"nick/{printer_key(p)}", name.strip())
+            self.build_home()
+            self.build_list()
+
+    def hplip_tool(self, tool):
+        uri = hp_uri_for(self.current) if self.current else ""
+        if uri:
+            subprocess.Popen([tool, "-d", uri], start_new_session=True)
+            self.status.showMessage(f"{tool} gestartet.")
+
+    def show_messages(self):
+        p = self.current
+        res = self.status_cache.get(printer_key(p)) if p else None
+        texts = [reason_text(r) for r in (res or {}).get("reasons", [])]
+        if res and res.get("message"):
+            texts.append(res["message"])
+        menu = QtWidgets.QMenu(self)
+        for t in texts or ["Keine Meldungen"]:
+            menu.addAction(t).setEnabled(bool(texts))
+        menu.exec(self.bell.mapToGlobal(QtCore.QPoint(0, self.bell.height())))
+
+    # ----- Liste aller Drucker (Pfeil oben links) -----
+    def build_list(self):
+        self.clear(self.list_body)
+        h = QtWidgets.QHBoxLayout()
+        t = QtWidgets.QLabel("Meine Drucker")
+        t.setStyleSheet("font-size: 34px; font-weight: bold;")
+        h.addWidget(t)
+        h.addStretch(1)
+        s = QtWidgets.QPushButton("Drucker suchen")
+        s.clicked.connect(self.search)
+        h.addWidget(s)
+        a = QtWidgets.QPushButton("+ Drucker hinzufügen")
+        a.setObjectName("primary")
+        a.clicked.connect(self.run_wizard)
+        h.addWidget(a)
+        self.list_body.addLayout(h)
+        self.list_body.addSpacing(10)
+        self.list_cards = {}
+        if not self.printers:
+            lab = QtWidgets.QLabel("Kein HP-Drucker gefunden.\n\nDrucker einschalten und per USB anstecken oder ins selbe "
+                                   "LAN/WLAN bringen, dann „Drucker suchen“.")
+            lab.setObjectName("dim")
+            lab.setStyleSheet("font-size: 16px; padding: 30px 0;")
+            self.list_body.addWidget(lab)
+        for p in self.printers:
+            card = self.printer_card(p, big=False)
+            card.setCursor(QtCore.Qt.PointingHandCursor)
+            card.clicked.connect(lambda pp=p: self.open_printer(pp))
+            self.list_cards[printer_key(p)] = card
+            self.list_body.addWidget(card)
+            self.list_body.addSpacing(12)
+        self.list_body.addStretch(1)
+
+    def open_printer(self, p):
+        self.select(self.printers.index(p))
+        self.go(self.HOME)
+
+    def setup_printer_from_list(self, p):
+        self.current = p
+        self.setup_current()
+
+    # ----- Einrichtungs-Assistent (erster Start, oder ueber "+") -----
     def run_wizard(self):
-        SetupWizard(self).exec()
+        wiz = SetupWizard(self)
+        wiz.setStyleSheet(QSS)
+        wiz.exec()
         self.settings.setValue("setup_done", True)
         self.search()
 
@@ -790,29 +1348,24 @@ class MainWindow(QtWidgets.QMainWindow):
         def done(ok, tag):
             if ok and tag and ver_tuple(tag) > ver_tuple(APP_VERSION):
                 self.update_tag = tag
-                self.act_update.setText(f"⬆ Update {tag}")
+                self.update_btn.setText(f"⬆ Update {tag}")
+                self.update_btn.show()
                 self.status.showMessage(f"Update verfügbar: {tag} (installiert: v{APP_VERSION})")
-            elif ok:
-                self.act_update.setText(f"✓ v{APP_VERSION} ist aktuell")
-            else:
-                self.act_update.setText("Nach Updates suchen")
         bg(latest_release, done)
 
     def update_clicked(self):
         if not self.update_tag:
-            self.act_update.setText("Suche…")
-            self.check_update()
             return
         if QtWidgets.QMessageBox.question(self, APP_NAME, f"Auf {self.update_tag} aktualisieren?\n\n"
                                           "Das Programm startet danach neu.") != QtWidgets.QMessageBox.Yes:
             return
-        self.act_update.setEnabled(False)
-        self.act_update.setText("Lade Update…")
+        self.update_btn.setEnabled(False)
+        self.update_btn.setText("Lade Update…")
 
         def done(ok, res):
             if not ok:
-                self.act_update.setEnabled(True)
-                self.act_update.setText(f"⬆ Update {self.update_tag}")
+                self.update_btn.setEnabled(True)
+                self.update_btn.setText(f"⬆ Update {self.update_tag}")
                 QtWidgets.QMessageBox.warning(self, APP_NAME, f"Update fehlgeschlagen: {res}")
                 return
             os.execv(sys.executable, [sys.executable, os.path.realpath(__file__)] + sys.argv[1:])
@@ -833,18 +1386,17 @@ class MainWindow(QtWidgets.QMainWindow):
             missing.append("ipp-usb")
         if not missing:
             return
-        bar = QtWidgets.QWidget()
+        bar = QtWidgets.QFrame()
+        bar.setObjectName("chip")
         lay = QtWidgets.QHBoxLayout(bar)
         lab = QtWidgets.QLabel("Es fehlen Pakete: " + ", ".join(missing))
-        lab.setStyleSheet("color: #d97706; font-weight: bold;")
         lay.addWidget(lab, 1)
         if shutil.which("pacman") and shutil.which("pkexec"):
             btn = QtWidgets.QPushButton("Jetzt installieren")
+            btn.setObjectName("primary")
             btn.clicked.connect(lambda: self.install_packages(missing, bar))
             lay.addWidget(btn)
-        self.addToolBarBreak()
-        tb = self.addToolBar("Hinweis")
-        tb.addWidget(bar)
+        self.banner.addWidget(bar)
 
     def install_packages(self, pkgs, bar):
         self.status.showMessage("Installiere " + " ".join(pkgs) + " …")
@@ -857,12 +1409,12 @@ class MainWindow(QtWidgets.QMainWindow):
         def done(ok, res):
             if ok:
                 QtWidgets.QMessageBox.information(self, APP_NAME, "Installiert. Bitte das Programm neu starten.")
-                bar.setEnabled(False)
+                bar.hide()
             else:
                 QtWidgets.QMessageBox.warning(self, APP_NAME, f"Installation fehlgeschlagen: {res}")
         bg(work, done)
 
-    # ----- Druckerliste -----
+    # ----- Drucker suchen und waehlen -----
     def search(self):
         self.act_search.setEnabled(False)
         self.status.showMessage("Suche HP-Drucker (USB und Netzwerk)…")
@@ -872,38 +1424,32 @@ class MainWindow(QtWidgets.QMainWindow):
             if not ok:
                 self.status.showMessage(f"Suche fehlgeschlagen: {res}")
                 return
-            old = self.current.uri if self.current else None
+            old = printer_key(self.current) if self.current else self.settings.value("last_printer", "")
             self.printers = res
-            self.list.clear()
-            for p in res:
-                item = QtWidgets.QListWidgetItem(QtGui.QIcon.fromTheme("printer"),
-                                                 f"{p.title}\n{p.connection} · " + ("eingerichtet" if p.queue else "noch nicht eingerichtet"))
-                self.list.addItem(item)
             self.status.showMessage(f"{len(res)} HP-Drucker gefunden." if res else
                                     "Kein HP-Drucker gefunden. Ist er eingeschaltet und per USB oder im selben Netz verbunden?")
-            idx = next((i for i, p in enumerate(res) if p.uri == old), 0)
-            if res:
-                self.list.setCurrentRow(idx)
-            else:
-                self.select(-1)
+            idx = next((i for i, p in enumerate(res) if printer_key(p) == old), None)
+            if idx is None:
+                idx = next((i for i, p in enumerate(res) if p.queue), 0 if res else -1)
+            self.select(idx)
+            self.build_list()
+            for p in res:
+                self.refresh_status(p)
+            if self.current and self.stack.currentIndex() == self.PRINTERS and (idx is not None and res[idx].queue):
+                self.go(self.HOME)
         bg(discover, done)
 
     def select(self, row):
-        self.current = self.printers[row] if 0 <= row < len(self.printers) else None
+        self.current = self.printers[row] if row is not None and 0 <= row < len(self.printers) else None
         p = self.current
-        self.clear_ink()
-        if not p:
-            self.head.setText("Kein Drucker gewählt")
-            self.sub.setText("")
-            self.update_actions()
-            return
-        self.head.setText(p.title)
-        self.sub.setText(f"{p.connection}  ·  {p.model or ''}  ·  " + (f"Warteschlange „{p.queue}“" if p.queue else "noch nicht eingerichtet")
-                         + f"\n{p.uri}")
+        if p:
+            self.settings.setValue("last_printer", printer_key(p))
+        self.build_home()
         self.update_actions()
-        self.refresh_status()
-        self.refresh_caps()
-        self.match_scanner()
+        if p:
+            self.refresh_status()
+            self.refresh_caps()
+            self.match_scanner()
 
     def update_actions(self):
         p = self.current
@@ -913,7 +1459,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.act_web.setEnabled(bool(p and p.host))
         self.print_btn.setEnabled(bool(p and p.queue))
         self.print_hint.setVisible(bool(p and not p.queue))
-        self.tabs.setTabVisible(self.fax_index, bool(p and p.caps and p.caps.get("fax")))
+        if getattr(self, "fax_tile", None) is not None:
+            try:
+                self.fax_tile.setVisible(bool(p and p.caps and p.caps.get("fax")))
+            except RuntimeError:
+                pass   # Startseite wurde gerade neu aufgebaut
         self.update_fax_state()
 
     def refresh_caps(self):
@@ -932,39 +1482,28 @@ class MainWindow(QtWidgets.QMainWindow):
         bg(lambda: hplip("caps", uri), done)
 
     # ----- Status und Tinte -----
-    def clear_ink(self):
-        while self.ink_layout.count():
-            w = self.ink_layout.takeAt(0).widget()
-            if w:
-                w.deleteLater()
-
-    def refresh_status(self):
-        p = self.current
+    def refresh_status(self, p=None):
+        p = p or self.current
         if not p:
             return
 
         def done(ok, res):
-            if p is not self.current:
-                return
-            self.clear_ink()
             if not ok:
-                self.ink_layout.addWidget(QtWidgets.QLabel(f"Status nicht abrufbar: {res}"))
-                return
-            reasons = ", ".join(reason_text(r) for r in res["reasons"])
-            line = " · ".join(x for x in (res["state"], reasons, res["message"]) if x)
-            if line:
-                lab = QtWidgets.QLabel(line)
-                lab.setStyleSheet("font-weight: bold;" + (" color: #d97706;" if res["reasons"] else ""))
-                self.ink_layout.addWidget(lab)
-            if res["markers"]:
-                for m in res["markers"]:
-                    self.ink_layout.addWidget(InkBar(m))
-            else:
-                self.ink_layout.addWidget(QtWidgets.QLabel(
-                    "Der Drucker meldet keinen Tintenstand." if (p.queue or p.ipp_uri() or hp_uri_for(p))
-                    else "Tintenstand gibt es nach dem Einrichten."))
-            self.apply_supported(res["supported"])
+                res = {"state": "", "reasons": [], "message": f"Status nicht abrufbar: {res}", "markers": [],
+                       "supported": {}}
+            self.status_cache[printer_key(p)] = res
+            for card in (getattr(self, "home_card", None) if p is self.current else None,
+                         getattr(self, "list_cards", {}).get(printer_key(p))):
+                if card is not None:
+                    try:
+                        self.fill_status(card, p, res)
+                    except RuntimeError:
+                        pass   # Karte wurde inzwischen neu aufgebaut
+            if p is self.current:
+                self.apply_supported(res.get("supported", {}))
+                self.bell.setStyleSheet(f"background: {ACC};" if res.get("reasons") else "")
         bg(lambda: query_status(p), done)
+
 
     # ----- Drucken -----
     def build_print_tab(self):
@@ -1006,6 +1545,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.apply_supported({})
         self.print_btn = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("document-print"), "Drucken")
         self.print_btn.setMinimumHeight(36)
+        self.print_btn.setObjectName("primary")
         self.print_btn.clicked.connect(self.do_print)
         lay.addWidget(self.print_btn)
         return w
@@ -1126,6 +1666,7 @@ class MainWindow(QtWidgets.QMainWindow):
         lay.addLayout(form)
         self.scan_btn = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("scanner"), "Scannen")
         self.scan_btn.setMinimumHeight(36)
+        self.scan_btn.setObjectName("primary")
         self.scan_btn.clicked.connect(self.do_scan)
         lay.addWidget(self.scan_btn)
         self.page_view = QtWidgets.QListWidget()
@@ -1169,7 +1710,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.scanner_combo.addItem("Kein HP-Scanner gefunden", None)
             for dev, desc in self.scanners:
                 kind = "Netzwerk/IPP" if dev.startswith("airscan") else "HPLIP"
-                self.scanner_combo.addItem(f"{desc}  ({kind})", dev)
+                short = re.sub(r"^eSCL\s+|\s+ip=.*$", "", desc)   # airscan haengt Protokoll und IPs an
+                self.scanner_combo.addItem(f"{short}  ({kind})", dev)
             self.scanner_combo.setEnabled(bool(self.scanners))
             self.scanner_combo.blockSignals(False)
             self.match_scanner()
@@ -1287,6 +1829,7 @@ class MainWindow(QtWidgets.QMainWindow):
         lay.addLayout(row)
         self.fax_send = QtWidgets.QPushButton("Fax senden")
         self.fax_send.setMinimumHeight(36)
+        self.fax_send.setObjectName("primary")
         self.fax_send.clicked.connect(self.send_fax)
         lay.addWidget(self.fax_send)
         self.fax_log = QtWidgets.QPlainTextEdit()
@@ -1355,6 +1898,9 @@ def main():
     win = MainWindow()
     win.show()
     if os.environ.get("HPDZ_SELFTEST"):
+        if os.environ.get("HPDZ_PAGE"):
+            QtCore.QTimer.singleShot(int(os.environ.get("HPDZ_SELFTEST_MS", "3000")) - 500,
+                                     lambda: win.go(int(os.environ["HPDZ_PAGE"])))
         QtCore.QTimer.singleShot(int(os.environ.get("HPDZ_SELFTEST_MS", "3000")),
                                  lambda: (win.grab().save(os.environ["HPDZ_SELFTEST"]), app.quit()))
     sys.exit(app.exec())
