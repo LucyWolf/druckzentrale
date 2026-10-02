@@ -56,12 +56,12 @@ bash Druckzentrale-installieren.sh
 ## Running from source
 
 ```bash
-python3 hp_druckzentrale.py
+python3 druckzentrale.py
 ```
 
-Needs PySide6, pycups and Pillow; the installer pulls in everything else. (The file keeps its old name so that older versions can still update.)
+Needs PySide6, pycups and Pillow; the installer pulls in everything else.
 
-**Releases (maintainers):** raise `APP_VERSION` in `hp_druckzentrale.py` (the last digit counts up to 99), commit, push, run `tools/release.sh`.
+**Releases (maintainers):** raise `APP_VERSION` in `druckzentrale.py` (the last digit counts up to 99), commit, push, run `tools/release.sh`.
 
 License: MIT, see [LICENSE](LICENSE).
 
@@ -121,11 +121,11 @@ bash Druckzentrale-installieren.sh
 ## Aus dem Quellcode starten
 
 ```bash
-python3 hp_druckzentrale.py
+python3 druckzentrale.py
 ```
 
-Braucht PySide6, pycups und Pillow; alles andere holt der Installer. (Die Datei behält ihren alten Namen, damit ältere Fassungen sich weiter aktualisieren können.)
+Braucht PySide6, pycups und Pillow; alles andere holt der Installer.
 
-**Releases (für Betreuer):** `APP_VERSION` in `hp_druckzentrale.py` erhöhen (die letzte Stelle zählt bis 99), committen, pushen, `tools/release.sh` ausführen.
+**Releases (für Betreuer):** `APP_VERSION` in `druckzentrale.py` erhöhen (die letzte Stelle zählt bis 99), committen, pushen, `tools/release.sh` ausführen.
 
 Lizenz: MIT, siehe [LICENSE](LICENSE).

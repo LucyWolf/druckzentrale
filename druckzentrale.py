@@ -28,11 +28,13 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.9"
-# Repo hiess frueher hp-druckzentrale (GitHub leitet weiter). Die Programmdatei heisst weiter
-# hp_druckzentrale.py, weil aeltere Fassungen beim Update genau diesen Namen laden.
+APP_VERSION = "1.0.10"
+# Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
-INSTALL_DIR = os.path.expanduser("~/.local/share/hp-druckzentrale")
+INSTALL_DIR = os.path.expanduser("~/.local/share/druckzentrale")
+OLD_INSTALL_DIR = os.path.expanduser("~/.local/share/hp-druckzentrale")
+DESKTOP_FILE = os.path.expanduser("~/.local/share/applications/druckzentrale.desktop")
+OLD_DESKTOP_FILE = os.path.expanduser("~/.local/share/applications/hp-druckzentrale.desktop")
 HPLIP_DIR = "/usr/share/hplip"
 NEEDED_PACKAGES = ["python-pycups", "sane", "sane-airscan", "ipp-usb", "python-pillow"]
 
@@ -613,7 +615,7 @@ def autocrop(path):
 
 
 def scan(dev, mode, res, source, area=None, crop=False):
-    tmp = tempfile.mkdtemp(prefix="hp-scan-")
+    tmp = tempfile.mkdtemp(prefix="dz-scan-")
     args = ["scanimage", "-d", dev, "--format=png"]
     if area:
         args += ["-l", "0", "-t", "0", "-x", str(area[0]), "-y", str(area[1])]
@@ -696,10 +698,10 @@ def latest_release():
 
 def install_update(tag):
     me = os.path.realpath(__file__)
-    url = f"https://github.com/{UPDATE_REPO}/releases/download/{tag}/hp_druckzentrale.py"
+    url = f"https://github.com/{UPDATE_REPO}/releases/download/{tag}/druckzentrale.py"
     with urllib.request.urlopen(url, timeout=60) as r:
         data = r.read()
-    compile(data, "hp_druckzentrale.py", "exec")   # kaputter Download ersetzt nie die laufende Fassung
+    compile(data, "druckzentrale.py", "exec")   # kaputter Download ersetzt nie die laufende Fassung
     tmp = me + ".neu"
     with open(tmp, "wb") as f:
         f.write(data)
@@ -974,7 +976,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scan_saved = True   # False, solange gescannte Seiten nicht gespeichert sind
         self.scan_dpi = "300"
         self.status_cache = {}   # Drucker-Schluessel -> letzter Status
-        self.settings = QtCore.QSettings("hp-druckzentrale", "hp-druckzentrale")
+        self.settings = QtCore.QSettings("druckzentrale", "druckzentrale")
 
         self.act_search = QtGui.QAction("Drucker suchen", self, triggered=self.search)
         self.act_setup = QtGui.QAction("Einrichten", self, triggered=self.setup_current)
@@ -1020,7 +1022,7 @@ class MainWindow(QtWidgets.QMainWindow):
         QtCore.QTimer.singleShot(200, self.search)
         QtCore.QTimer.singleShot(400, self.refresh_scanners)
         QtCore.QTimer.singleShot(1500, self.check_update)
-        if not self.settings.value("setup_done", False, type=bool) and not os.environ.get("HPDZ_SELFTEST"):
+        if not self.settings.value("setup_done", False, type=bool) and not os.environ.get("DZ_SELFTEST"):
             QtCore.QTimer.singleShot(300, self.run_wizard)
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.refresh_status)
@@ -2246,7 +2248,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not files or Image is None:
             self.status.showMessage("Keine gescannten Seiten.")
             return
-        path = os.path.join(tempfile.mkdtemp(prefix="hp-fax-"), "Scan.pdf")
+        path = os.path.join(tempfile.mkdtemp(prefix="dz-fax-"), "Scan.pdf")
         save_pages(files, path, "pdf", self.scan_dpi)
         self.fax_files.addItem(path)
 
@@ -2268,34 +2270,56 @@ class MainWindow(QtWidgets.QMainWindow):
         bg(lambda: run(["hp-sendfax", "-n", f"--fax={p.fax_queue}", "-f", number] + files, 1800), done)
 
 
-def rename_menu_entry():
-    """Aeltere Installationen hiessen „HP Druckzentrale“: Menueeintrag einmal umbenennen."""
-    path = os.path.expanduser("~/.local/share/applications/hp-druckzentrale.desktop")
-    try:
-        text = open(path).read()
-        if "Name=HP Druckzentrale" in text:
-            open(path, "w").write(text.replace("Name=HP Druckzentrale", "Name=Druckzentrale")
-                                  .replace("für HP-Drucker", "für Drucker"))
-    except OSError:
-        pass
+def migrate_old_install():
+    """Frueher „HP Druckzentrale“ in ~/.local/share/hp-druckzentrale: einmalig umziehen
+    (Programm, Menueeintrag, Einstellungen). Gibt den neuen Programmpfad zurueck, falls umgezogen."""
+    old_settings = QtCore.QSettings("hp-druckzentrale", "hp-druckzentrale")
+    new_settings = QtCore.QSettings("druckzentrale", "druckzentrale")
+    if old_settings.allKeys() and not new_settings.allKeys():
+        for k in old_settings.allKeys():
+            new_settings.setValue(k, old_settings.value(k))
+        new_settings.sync()
+    me = os.path.realpath(__file__)
+    if not (os.path.exists(OLD_DESKTOP_FILE) or me.startswith(OLD_INSTALL_DIR + os.sep)):
+        return None
+    os.makedirs(INSTALL_DIR, exist_ok=True)
+    target = os.path.join(INSTALL_DIR, "druckzentrale.py")
+    shutil.copyfile(me, target)
+    os.chmod(target, 0o755)
+    os.makedirs(os.path.dirname(DESKTOP_FILE), exist_ok=True)
+    with open(DESKTOP_FILE, "w") as f:
+        f.write("[Desktop Entry]\nType=Application\nName=Druckzentrale\n"
+                "Comment=Drucken, Scannen, Tintenstand, Wartung und Fax für Drucker\n"
+                f"Exec=python3 {target}\nIcon=printer\nCategories=Office;Graphics;Utility;\n"
+                "StartupWMClass=druckzentrale\n")
+    for path in (OLD_DESKTOP_FILE,):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    shutil.rmtree(OLD_INSTALL_DIR, ignore_errors=True)
+    run(["update-desktop-database", os.path.dirname(DESKTOP_FILE)], 20)
+    return target if target != me else None
 
 
 def main():
     global _bridge
-    rename_menu_entry()
+    moved = migrate_old_install()
+    if moved:
+        os.execv(sys.executable, [sys.executable, moved] + sys.argv[1:])
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
-    app.setDesktopFileName("hp-druckzentrale")
+    app.setDesktopFileName("druckzentrale")
     _bridge = Bridge()
     _bridge.call.connect(lambda fn: fn(), QtCore.Qt.QueuedConnection)
     win = MainWindow()
     win.show()
-    if os.environ.get("HPDZ_SELFTEST"):
-        if os.environ.get("HPDZ_PAGE"):
-            QtCore.QTimer.singleShot(int(os.environ.get("HPDZ_SELFTEST_MS", "3000")) - 500,
-                                     lambda: win.go(int(os.environ["HPDZ_PAGE"])))
-        QtCore.QTimer.singleShot(int(os.environ.get("HPDZ_SELFTEST_MS", "3000")),
-                                 lambda: (win.grab().save(os.environ["HPDZ_SELFTEST"]), app.quit()))
+    if os.environ.get("DZ_SELFTEST"):
+        if os.environ.get("DZ_PAGE"):
+            QtCore.QTimer.singleShot(int(os.environ.get("DZ_SELFTEST_MS", "3000")) - 500,
+                                     lambda: win.go(int(os.environ["DZ_PAGE"])))
+        QtCore.QTimer.singleShot(int(os.environ.get("DZ_SELFTEST_MS", "3000")),
+                                 lambda: (win.grab().save(os.environ["DZ_SELFTEST"]), app.quit()))
     sys.exit(app.exec())
 
 

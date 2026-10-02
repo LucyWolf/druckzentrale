@@ -9,8 +9,10 @@
 set -euo pipefail
 
 TITLE="Druckzentrale"
-INSTALL_DIR="$HOME/.local/share/hp-druckzentrale"
-DESKTOP_FILE="$HOME/.local/share/applications/hp-druckzentrale.desktop"
+INSTALL_DIR="$HOME/.local/share/druckzentrale"
+OLD_INSTALL_DIR="$HOME/.local/share/hp-druckzentrale"
+DESKTOP_FILE="$HOME/.local/share/applications/druckzentrale.desktop"
+OLD_DESKTOP_FILE="$HOME/.local/share/applications/hp-druckzentrale.desktop"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$PWD/x}")" && pwd)"
 RELEASE_URL="https://github.com/LucyWolf/druckzentrale/releases/latest/download"
 
@@ -52,15 +54,15 @@ as_root() {
 }
 
 uninstall() {
-    rm -rf "$INSTALL_DIR"
-    rm -f "$DESKTOP_FILE"
+    rm -rf "$INSTALL_DIR" "$OLD_INSTALL_DIR"
+    rm -f "$DESKTOP_FILE" "$OLD_DESKTOP_FILE"
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$HOME/.local/share/applications" || true
     info "Druckzentrale wurde entfernt.\n\nDie Pakete (CUPS, HPLIP, SANE …) und eingerichtete Drucker bleiben erhalten,\nandere Programme nutzen sie auch."
     exit 0
 }
 
 # Schon installiert? Dann aktualisieren oder deinstallieren
-if [ -f "$INSTALL_DIR/hp_druckzentrale.py" ]; then
+if [ -f "$INSTALL_DIR/druckzentrale.py" ] || [ -f "$OLD_INSTALL_DIR/hp_druckzentrale.py" ]; then
     Q="Druckzentrale ist schon installiert."
     case "$GUI" in
         1) set +e; kdialog --title "$TITLE" --yesnocancel "$Q" --yes-label "Aktualisieren" --no-label "Deinstallieren"
@@ -80,8 +82,8 @@ fi
 
 # 1) Programmdatei: neben dem Installer, sonst die neueste aus dem Release
 APP_SRC=""
-if [ -z "${HPDZ_FROM_WEB:-}" ]; then
-    for c in "$SCRIPT_DIR/hp_druckzentrale.py" "$SCRIPT_DIR/../hp_druckzentrale.py"; do
+if [ -z "${DZ_FROM_WEB:-}" ]; then
+    for c in "$SCRIPT_DIR/druckzentrale.py" "$SCRIPT_DIR/../druckzentrale.py"; do
         if [ -f "$c" ]; then APP_SRC="$c"; break; fi
     done
 fi
@@ -90,7 +92,7 @@ if [ -z "$APP_SRC" ]; then
     TMP_APP="$(mktemp)"
     trap 'rm -f "$TMP_APP"' EXIT
     note "Lade die neueste Version herunter …"
-    curl -fsSL --retry 2 -o "$TMP_APP" "$RELEASE_URL/hp_druckzentrale.py" \
+    curl -fsSL --retry 2 -o "$TMP_APP" "$RELEASE_URL/druckzentrale.py" \
         || fail "Download fehlgeschlagen.\nBesteht eine Internetverbindung?"
     APP_SRC="$TMP_APP"
 fi
@@ -151,8 +153,11 @@ python3 -c "import PySide6, cups, PIL" 2>/dev/null \
 
 # 3) Programm kopieren
 mkdir -p "$INSTALL_DIR"
-cp -f "$APP_SRC" "$INSTALL_DIR/hp_druckzentrale.py"
-chmod 755 "$INSTALL_DIR/hp_druckzentrale.py"
+cp -f "$APP_SRC" "$INSTALL_DIR/druckzentrale.py"
+chmod 755 "$INSTALL_DIR/druckzentrale.py"
+# Reste der frueheren „HP Druckzentrale“
+rm -rf "$OLD_INSTALL_DIR"
+rm -f "$OLD_DESKTOP_FILE"
 
 # 4) Menueeintrag
 mkdir -p "$(dirname "$DESKTOP_FILE")"
@@ -161,10 +166,10 @@ cat > "$DESKTOP_FILE" << DESKTOP
 Type=Application
 Name=Druckzentrale
 Comment=Drucken, Scannen, Tintenstand, Wartung und Fax für Drucker
-Exec=python3 $INSTALL_DIR/hp_druckzentrale.py
+Exec=python3 $INSTALL_DIR/druckzentrale.py
 Icon=printer
 Categories=Office;Graphics;Utility;
-StartupWMClass=hp-druckzentrale
+StartupWMClass=druckzentrale
 DESKTOP
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$HOME/.local/share/applications" || true
 
