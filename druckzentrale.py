@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -28,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.11"
+APP_VERSION = "1.0.12"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 INSTALL_DIR = os.path.expanduser("~/.local/share/druckzentrale")
@@ -494,6 +495,8 @@ LEDM_LABELS = {
     "faxLastCallReport": ("report", "Letzter Faxvorgang", ""),
     "faxErrorReport": ("report", "Fax-Fehlerbericht", ""),
 }
+
+CLEAN_LEVELS = ["cleaningPage", "cleaningPageLevel1", "cleaningPageLevel2", "cleaningPageLevel3"]
 
 HPLIP_TOOLS = [("clean", "hp-clean", "Druckköpfe reinigen", "Bei Streifen oder blassen Farben."),
                ("align", "hp-align", "Druckköpfe ausrichten", "Bei versetzten oder doppelten Linien."),
@@ -1464,13 +1467,21 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
             try:
                 seen = set()
+                # Reinigung: ein Knopf, die Stufen folgen nach Rueckfrage (wie am Drucker selbst)
+                levels = [j for j in CLEAN_LEVELS if j in res["ledm"]]
+                if levels:
+                    seen.add("clean")
+                    self.add_maint_row(self.mt_q, "configure", "Druckkopf reinigen",
+                                       "Bei Streifen oder blassen Farben. Druckt eine Seite; danach fragt die App, "
+                                       "ob eine gründlichere Reinigung nötig ist.",
+                                       lambda _=False: self.start_cleaning(p, ip, levels))
                 for job in res["ledm"]:
-                    if job not in LEDM_LABELS or LEDM_LABELS[job][1] in seen:
+                    if job in CLEAN_LEVELS or job not in LEDM_LABELS or LEDM_LABELS[job][1] in seen:
                         continue
                     kind, text, desc = LEDM_LABELS[job]
                     seen.add(text)
                     lay = self.mt_q if kind == "quality" else self.mt_r
-                    self.add_maint_row(lay, "edit-clear" if kind == "quality" else "document-preview", text, desc,
+                    self.add_maint_row(lay, "configure" if kind == "quality" else "document-preview", text, desc,
                                        lambda _=False, j=job, t=text: self.run_ledm(ip, j, t),
                                        button="Drucken" if kind == "report" else "Ausführen")
                     if kind == "report":
@@ -1479,15 +1490,56 @@ class MainWindow(QtWidgets.QMainWindow):
                 if not res["ledm"]:
                     for key, tool, text, desc in HPLIP_TOOLS:
                         if caps.get(key, 0) > 0 and shutil.which(tool):
-                            self.add_maint_row(self.mt_q, "edit-clear", text, desc,
+                            self.add_maint_row(self.mt_q, "configure", text, desc,
                                                lambda _=False, tl=tool: self.hplip_tool(tl))
                 for c in res["cups"]:
-                    if c in CUPS_COMMANDS and not (c == "Clean" and seen):
+                    if c in CUPS_COMMANDS and not (c == "Clean" and "clean" in seen):
                         text, desc = CUPS_COMMANDS[c]
-                        self.add_maint_row(self.mt_q, "edit-clear", text, desc,
+                        self.add_maint_row(self.mt_q, "configure", text, desc,
                                            lambda _=False, cc=c: self.run_cups_command(cc))
             except RuntimeError:
                 pass   # Seite wurde inzwischen neu aufgebaut
+        bg(work, done)
+
+    def start_cleaning(self, p, ip, levels, step=0):
+        """Stufe fuer Stufe: reinigen, warten bis der Drucker fertig ist, fragen ob es reicht."""
+        if step == 0 and QtWidgets.QMessageBox.question(
+                self, APP_NAME, "Druckkopf reinigen?\n\nDie Reinigung verbraucht etwas Tinte und druckt eine "
+                "Seite – bitte Papier einlegen.") != QtWidgets.QMessageBox.Yes:
+            return
+        stufe = f"Stufe {step + 1} von {len(levels)}"
+        self.status.showMessage(f"Druckkopf wird gereinigt ({stufe}) …")
+
+        def work():
+            ledm_run(ip, levels[step])
+            time.sleep(15)   # der Drucker beginnt erst nach ein paar Sekunden
+            deadline = time.time() + 300
+            while time.time() < deadline:
+                if query_status(p).get("state") == "Bereit":
+                    return
+                time.sleep(5)
+
+        def done(ok, res):
+            if not ok:
+                self.status.showMessage(f"Reinigung fehlgeschlagen: {res}")
+                return
+            self.status.showMessage(f"Reinigung {stufe} fertig.")
+            if step + 1 >= len(levels):
+                QtWidgets.QMessageBox.information(
+                    self, APP_NAME, "Die gründlichste Reinigung ist durch.\n\nSind noch Streifen zu sehen, hilft oft "
+                    "eine Pause von ein paar Stunden – oder die Patrone ist leer bzw. eingetrocknet.")
+                return
+            box = QtWidgets.QMessageBox(self)
+            box.setWindowTitle(APP_NAME)
+            box.setText("Ist das Druckbild auf der gedruckten Seite jetzt in Ordnung?")
+            box.setInformativeText("Sind noch Streifen oder Lücken zu sehen, folgt eine gründlichere Reinigung "
+                                   "(braucht mehr Tinte).")
+            ok_btn = box.addButton("Ja, fertig", QtWidgets.QMessageBox.AcceptRole)
+            more = box.addButton("Weitere Reinigung", QtWidgets.QMessageBox.ActionRole)
+            box.setDefaultButton(ok_btn)
+            box.exec()
+            if box.clickedButton() is more:
+                self.start_cleaning(p, ip, levels, step + 1)
         bg(work, done)
 
     def run_ledm(self, ip, job, text):
