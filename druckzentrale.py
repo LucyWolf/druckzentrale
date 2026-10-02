@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.23"
+APP_VERSION = "1.0.24"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -895,6 +895,14 @@ class SetupWizard(QtWidgets.QDialog):
         self.test_btn.clicked.connect(self.test_page)
         self.test_btn.hide()
         l3.addWidget(self.test_btn, 0, QtCore.Qt.AlignLeft)
+        self.name_box = QtWidgets.QWidget()
+        nl = QtWidgets.QVBoxLayout(self.name_box)
+        nl.setContentsMargins(0, 12, 0, 0)
+        nl.addWidget(QtWidgets.QLabel("Wie soll der Drucker heißen? (leer lassen = Gerätename)"))
+        self.name_edit = QtWidgets.QLineEdit()
+        nl.addWidget(self.name_edit)
+        self.name_box.hide()
+        l3.addWidget(self.name_box)
         l3.addStretch(1)
         self.stack.addWidget(p3)
         self.next.setText("Drucker suchen")
@@ -911,6 +919,10 @@ class SetupWizard(QtWidgets.QDialog):
                 self.stack.setCurrentIndex(2)
                 self.do_setup()
         else:
+            if not self.name_box.isHidden():
+                # nur beim ersten Einbinden gefragt; leer = echter Geraetename
+                name = self.name_edit.text().strip() or real_name(self.chosen)
+                QtCore.QSettings("druckzentrale", "druckzentrale").setValue(f"nick/{printer_key(self.chosen)}", name)
             self.accept()
 
     def search(self):
@@ -963,6 +975,11 @@ class SetupWizard(QtWidgets.QDialog):
         self.setup_label.setText(text + ("\n\nAls Nächstes kannst du eine Testseite drucken." if ok else
                                          "\n\n„Fertig“ schließt die Einrichtung; sie lässt sich oben über „Einrichtung“ "
                                          "jederzeit erneut starten."))
+        settings = QtCore.QSettings("druckzentrale", "druckzentrale")
+        if ok and not settings.value(f"nick/{printer_key(self.chosen)}", ""):
+            self.name_edit.setPlaceholderText(real_name(self.chosen))
+            self.name_box.show()
+            self.name_edit.setFocus()
         if ok:
             def find_queue():
                 for q in discover():
@@ -1418,12 +1435,6 @@ class MainWindow(QtWidgets.QMainWindow):
         if p.host:
             form.addRow("Adresse", QtWidgets.QLabel(p.host))
         form.addRow("Warteschlange", QtWidgets.QLabel(p.queue or "noch nicht eingerichtet"))
-        nick = QtWidgets.QHBoxLayout()
-        nick.addWidget(QtWidgets.QLabel(self.nickname(p)), 1)
-        rn = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("document-edit"), "Umbenennen")
-        rn.clicked.connect(self.rename)
-        nick.addWidget(rn)
-        form.addRow("Name", nick)
         dl.addLayout(form)
         self.ov_body.addWidget(dev)
         self.ov_body.addStretch(1)
@@ -1560,6 +1571,10 @@ class MainWindow(QtWidgets.QMainWindow):
         a = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("tools-wizard"), "Einrichtungs-Assistent")
         a.clicked.connect(self.run_wizard)
         r.addWidget(a)
+        if p:
+            rn = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("document-edit"), "Drucker umbenennen")
+            rn.clicked.connect(self.rename)
+            r.addWidget(rn)
         if p and p.queue:
             rm = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("list-remove"), "Drucker von diesem PC entfernen")
             rm.clicked.connect(self.remove_current)
@@ -1935,9 +1950,11 @@ class MainWindow(QtWidgets.QMainWindow):
         p = self.current
         if not p:
             return
-        name, ok = QtWidgets.QInputDialog.getText(self, "Spitzname", "Name für diesen Drucker:", text=self.nickname(p))
+        name, ok = QtWidgets.QInputDialog.getText(self, "Drucker umbenennen",
+                                                  "Name für diesen Drucker (leer lassen = Gerätename):",
+                                                  text=self.nickname(p))
         if ok:
-            self.settings.setValue(f"nick/{printer_key(p)}", name.strip())
+            self.settings.setValue(f"nick/{printer_key(p)}", name.strip() or real_name(p))
             self.build_overview()
             self.fill_printer_list()
 
@@ -2180,6 +2197,12 @@ class MainWindow(QtWidgets.QMainWindow):
         def done(ok, res):
             self.status.showMessage(res if ok else f"Einrichten fehlgeschlagen: {res}")
             if ok:
+                key = f"nick/{printer_key(p)}"
+                if not self.settings.value(key, ""):
+                    name, given = QtWidgets.QInputDialog.getText(
+                        self, "Druckername", "Wie soll der Drucker heißen? (leer lassen = Gerätename)",
+                        text="")
+                    self.settings.setValue(key, (name.strip() if given else "") or real_name(p))
                 QtCore.QTimer.singleShot(1500, self.search)
         bg(lambda: setup_printer(p), done)
 
