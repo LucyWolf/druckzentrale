@@ -26,7 +26,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "HP Druckzentrale"
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
 UPDATE_REPO = "LucyWolf/hp-druckzentrale"
 INSTALL_DIR = os.path.expanduser("~/.local/share/hp-druckzentrale")
 HPLIP_DIR = "/usr/share/hplip"
@@ -1287,6 +1287,7 @@ class MainWindow(QtWidgets.QMainWindow):
         settings_rows.append(("tools-wizard", "Einrichtungs-Assistent", "", self.run_wizard))
         if p.queue:
             settings_rows.append(("list-remove", "Drucker von diesem PC entfernen", "", self.remove_current))
+        settings_rows.append(("system-software-update", "Nach Updates suchen", f"v{APP_VERSION}", self.manual_update))
         self.home_body.addWidget(section("Druckereinstellungen", settings_rows))
         self.home_body.addSpacing(30)
         self.update_actions()
@@ -1376,13 +1377,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.search()
 
     # ----- Updates -----
-    def check_update(self):
+    def manual_update(self):
+        if self.update_tag:
+            self.update_clicked()
+            return
+        self.status.showMessage("Suche nach Updates…")
+        self.check_update(manual=True)
+
+    def check_update(self, manual=False):
         def done(ok, tag):
+            if manual and not (ok and tag and ver_tuple(tag) > ver_tuple(APP_VERSION)):
+                self.status.showMessage(f"v{APP_VERSION} ist aktuell." if ok else f"Update-Prüfung fehlgeschlagen: {tag}")
             if ok and tag and ver_tuple(tag) > ver_tuple(APP_VERSION):
                 self.update_tag = tag
                 self.update_btn.setText(f"⬆ Update {tag}")
                 self.update_btn.show()
                 self.status.showMessage(f"Update verfügbar: {tag} (installiert: v{APP_VERSION})")
+                if manual:
+                    self.update_clicked()
         bg(latest_release, done)
 
     def update_clicked(self):
