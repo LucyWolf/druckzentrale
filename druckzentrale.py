@@ -28,7 +28,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.10"
+APP_VERSION = "1.0.11"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 INSTALL_DIR = os.path.expanduser("~/.local/share/druckzentrale")
@@ -713,18 +713,18 @@ class InkBar(QtWidgets.QWidget):
     def __init__(self, marker):
         super().__init__()
         self.m = marker
-        self.setMinimumHeight(30)
+        self.setMinimumHeight(34)
 
     def paintEvent(self, e):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing)
-        r = self.rect().adjusted(150, 6, -60, -6)
+        r = QtCore.QRectF(self.rect().adjusted(150, 11, -60, -11))
         p.setPen(self.palette().color(QtGui.QPalette.WindowText))
         p.drawText(QtCore.QRect(0, 0, 145, self.height()), QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft,
                    self.fontMetrics().elidedText(ink_name(self.m["name"]), QtCore.Qt.ElideRight, 145))
         p.setPen(QtCore.Qt.NoPen)
-        p.setBrush(self.palette().color(QtGui.QPalette.Mid))
-        p.drawRoundedRect(r, 5, 5)
+        p.setBrush(QtGui.QColor(THEME.get("track", "#888888")))
+        p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
         level = self.m["level"]
         text = f"{level} %" if level >= 0 else ("vorhanden" if level == -3 else "unbekannt")
         if level >= 0 or level == -3:
@@ -738,7 +738,7 @@ class InkBar(QtWidgets.QWidget):
                 for i, c in enumerate(cols):
                     g.setColorAt(i / max(1, len(cols) - 1), QtGui.QColor(c))
                 p.setBrush(g)
-            p.drawRoundedRect(fill, 5, 5)
+            p.drawRoundedRect(fill, r.height() / 2, r.height() / 2)
         p.setPen(self.palette().color(QtGui.QPalette.WindowText))
         p.drawText(QtCore.QRect(self.width() - 55, 0, 55, self.height()), QtCore.Qt.AlignVCenter | QtCore.Qt.AlignRight, text)
 
@@ -903,19 +903,98 @@ class SetupWizard(QtWidgets.QDialog):
 
 
 # ---------- Optik: schlicht, folgt dem Systemthema (hell/dunkel wie im Desktop eingestellt) ----------
-QSS = """
-QFrame#group { border: 1px solid palette(mid); border-radius: 8px; background: palette(base); }
-QLabel#title { font-size: 24px; font-weight: bold; }
-QLabel#h2 { font-size: 15px; font-weight: bold; }
-QLabel#dim { color: #8a8a8a; }
-QListWidget#nav, QListWidget#printers { border: none; background: transparent; }
-QListWidget#nav::item, QListWidget#printers::item { padding: 7px 8px; border-radius: 6px; }
-QListWidget#nav::item:selected, QListWidget#printers::item:selected {
-    background: palette(highlight); color: palette(highlighted-text); }
-QPushButton#primary { background: palette(highlight); color: palette(highlighted-text); border: none;
-    border-radius: 6px; padding: 7px 16px; font-weight: bold; }
-QPushButton#primary:disabled { background: palette(mid); }
+ACCENT, ACCENT_H = "#12A594", "#0E8C7E"
+THEME = {}
+
+
+def make_qss():
+    """Modernes Schema: Karten ohne Rahmen, runde Ecken, eigene Akzentfarbe; hell oder dunkel wie das System."""
+    win = QtWidgets.QApplication.palette().color(QtGui.QPalette.Window)
+    dark = win.lightness() < 128
+    THEME.update({"bg": "#121418", "side": "#0C0E11", "card": "#1C1F25", "card_h": "#252A32", "text": "#EEF1F5",
+                  "dim": "#9AA3AE", "track": "#2E333C", "line": "#2A2F37", "field": "#16191E"} if dark else
+                 {"bg": "#F3F5F8", "side": "#E8ECF1", "card": "#FFFFFF", "card_h": "#F0F3F7", "text": "#1A1D22",
+                  "dim": "#6B7480", "track": "#E2E6EB", "line": "#DDE2E8", "field": "#FFFFFF"})
+    t = THEME
+    return f"""
+QMainWindow, QDialog, QStackedWidget, QScrollArea, QScrollArea > QWidget > QWidget {{ background: {t['bg']}; }}
+QWidget {{ color: {t['text']}; font-size: 14px; }}
+QWidget#side {{ background: {t['side']}; }}
+QLabel {{ background: transparent; }}
+QFrame#group, QFrame#tile {{ background: {t['card']}; border: none; border-radius: 16px; }}
+QFrame#tile:hover {{ background: {t['card_h']}; }}
+QFrame#hero {{ border: none; border-radius: 20px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {t['card']}, stop:1 rgba(18,165,148,0.22)); }}
+QLabel#title {{ font-size: 26px; font-weight: 700; }}
+QLabel#big {{ font-size: 34px; font-weight: 700; }}
+QLabel#h2 {{ font-size: 16px; font-weight: 700; }}
+QLabel#dim {{ color: {t['dim']}; }}
+QLabel#accent {{ color: {ACCENT}; font-weight: 600; }}
+QLabel#chip_ok, QLabel#chip_warn, QLabel#chip_off, QLabel#badge {{ border-radius: 12px; padding: 4px 12px; font-weight: 600; }}
+QLabel#chip_ok {{ background: rgba(46,158,91,0.18); color: #2FAE66; }}
+QLabel#chip_warn {{ background: rgba(217,119,6,0.18); color: #E08A0B; }}
+QLabel#chip_off {{ background: {t['track']}; color: {t['dim']}; }}
+QLabel#badge {{ background: rgba(18,165,148,0.14); color: {ACCENT}; font-weight: 500; }}
+QListWidget#nav, QListWidget#printers {{ border: none; background: transparent; outline: none; }}
+QListWidget#nav::item, QListWidget#printers::item {{ padding: 9px 10px; border-radius: 10px; margin: 1px 0; }}
+QListWidget#nav::item:hover, QListWidget#printers::item:hover {{ background: {t['card_h']}; }}
+QListWidget#nav::item:selected, QListWidget#printers::item:selected {{ background: {ACCENT}; color: #FFFFFF; }}
+QPushButton {{ background: {t['card_h']}; border: none; border-radius: 10px; padding: 8px 14px; }}
+QFrame#group QPushButton, QFrame#hero QPushButton {{ background: {t['track']}; }}
+QPushButton:hover, QFrame#group QPushButton:hover {{ background: {t['line']}; }}
+QPushButton:disabled {{ color: {t['dim']}; }}
+QPushButton#primary, QFrame#group QPushButton#primary, QFrame#hero QPushButton#primary {{
+    background: {ACCENT}; color: #FFFFFF; border-radius: 18px; padding: 8px 20px; font-weight: 700; }}
+QPushButton#primary:hover, QFrame#group QPushButton#primary:hover {{ background: {ACCENT_H}; }}
+QPushButton#primary:disabled {{ background: {t['track']}; color: {t['dim']}; }}
+QComboBox, QLineEdit, QSpinBox, QPlainTextEdit, QListWidget {{ background: {t['field']}; border: 1px solid {t['line']};
+    border-radius: 10px; padding: 6px 8px; }}
+QComboBox QAbstractItemView {{ background: {t['card']}; selection-background-color: {ACCENT}; selection-color: #FFFFFF; }}
+QListWidget::item:selected {{ background: {ACCENT}; color: #FFFFFF; border-radius: 6px; }}
+QCheckBox::indicator:checked {{ background: {ACCENT}; border-radius: 4px; }}
+QProgressBar {{ background: {t['track']}; border: none; border-radius: 4px; max-height: 8px; }}
+QProgressBar::chunk {{ background: {ACCENT}; border-radius: 4px; }}
+QStatusBar {{ background: {t['bg']}; color: {t['dim']}; }}
+QScrollBar:vertical {{ background: transparent; width: 10px; }}
+QScrollBar::handle:vertical {{ background: {t['line']}; border-radius: 5px; min-height: 30px; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
+QMenu {{ background: {t['card']}; border: 1px solid {t['line']}; }}
+QMenu::item:selected {{ background: {ACCENT}; color: #FFFFFF; }}
 """
+
+
+class Clickable(QtWidgets.QFrame):
+    clicked = QtCore.Signal()
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == QtCore.Qt.LeftButton and self.rect().contains(e.position().toPoint()):
+            self.clicked.emit()
+
+
+def tile(title, desc, icon_name, cb):
+    """Schnellzugriff-Kachel: Symbol, Titel, kurze Beschreibung."""
+    t = Clickable()
+    t.setObjectName("tile")
+    t.setCursor(QtCore.Qt.PointingHandCursor)
+    t.setMinimumHeight(118)
+    lay = QtWidgets.QVBoxLayout(t)
+    lay.setContentsMargins(20, 18, 20, 16)
+    icon = QtGui.QIcon.fromTheme(icon_name)
+    if not icon.isNull():
+        ic = QtWidgets.QLabel()
+        ic.setPixmap(icon.pixmap(32, 32))
+        lay.addWidget(ic)
+    lay.addStretch(1)
+    h = QtWidgets.QLabel(title)
+    h.setObjectName("h2")
+    lay.addWidget(h)
+    d = QtWidgets.QLabel(desc)
+    d.setObjectName("dim")
+    d.setWordWrap(True)
+    lay.addWidget(d)
+    t.clicked.connect(cb)
+    return t
+
 
 STATE_COLORS = {"ok": "#2e9e5b", "warn": "#d97706", "off": "#9a9a9a", "err": "#d14343"}
 
@@ -937,8 +1016,8 @@ def group(title=None):
     f = QtWidgets.QFrame()
     f.setObjectName("group")
     lay = QtWidgets.QVBoxLayout(f)
-    lay.setContentsMargins(18, 14, 18, 16)
-    lay.setSpacing(8)
+    lay.setContentsMargins(22, 18, 22, 20)
+    lay.setSpacing(10)
     if title:
         h = QtWidgets.QLabel(title)
         h.setObjectName("h2")
@@ -968,7 +1047,7 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.resize(1180, 800)
-        self.setStyleSheet(QSS)
+        self.setStyleSheet(make_qss())
         self.printers = []
         self.current = None
         self.scanners = []
@@ -991,10 +1070,6 @@ class MainWindow(QtWidgets.QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         root.addWidget(self.build_sidebar())
-        line = QtWidgets.QFrame()
-        line.setFrameShape(QtWidgets.QFrame.VLine)
-        line.setFrameShadow(QtWidgets.QFrame.Sunken)
-        root.addWidget(line)
         right = QtWidgets.QVBoxLayout()
         right.setContentsMargins(22, 16, 22, 8)
         self.banner = QtWidgets.QVBoxLayout()
@@ -1035,6 +1110,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def build_sidebar(self):
         side = QtWidgets.QWidget()
         side.setFixedWidth(250)
+        side.setObjectName("side")
+        side.setAttribute(QtCore.Qt.WA_StyledBackground, True)
         lay = QtWidgets.QVBoxLayout(side)
         lay.setContentsMargins(12, 16, 12, 12)
         head = QtWidgets.QHBoxLayout()
@@ -1125,28 +1202,53 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ov_body.addWidget(hint)
             self.ov_body.addStretch(1)
             return
-        head = QtWidgets.QHBoxLayout()
-        icon = QtWidgets.QLabel()
-        icon.setPixmap(QtGui.QIcon.fromTheme("printer").pixmap(72, 72))
-        head.addWidget(icon)
+        hero_frame = QtWidgets.QFrame()
+        hero_frame.setObjectName("hero")
+        head = QtWidgets.QHBoxLayout(hero_frame)
+        head.setContentsMargins(28, 24, 28, 24)
         col = QtWidgets.QVBoxLayout()
         t = QtWidgets.QLabel(self.nickname(p))
-        t.setObjectName("title")
+        t.setObjectName("big")
         col.addWidget(t)
         model = re.sub(r"\s+-\s+.*$", "", p.model or p.info or "")
-        m = QtWidgets.QLabel(f"{model}  ·  {p.connection}")
-        m.setObjectName("dim")
+        m = QtWidgets.QLabel(model)
+        m.setObjectName("accent")
+        m.setStyleSheet("font-size: 16px;")
         col.addWidget(m)
+        col.addSpacing(10)
+        chips = QtWidgets.QHBoxLayout()
         self.ov_state = QtWidgets.QLabel("Status wird abgefragt …")
-        self.ov_state.setStyleSheet("font-weight: bold;")
-        col.addWidget(self.ov_state)
-        head.addLayout(col, 1)
+        self.ov_state.setObjectName("chip_off")
+        chips.addWidget(self.ov_state)
+        conn = QtWidgets.QLabel(p.connection)
+        conn.setObjectName("chip_off")
+        chips.addWidget(conn)
+        chips.addStretch(1)
+        col.addLayout(chips)
         if not p.queue:
+            col.addSpacing(8)
             b = QtWidgets.QPushButton("Drucker einrichten")
             b.setObjectName("primary")
             b.clicked.connect(self.setup_current)
-            head.addWidget(b, 0, QtCore.Qt.AlignTop)
-        self.ov_body.addLayout(head)
+            col.addWidget(b, 0, QtCore.Qt.AlignLeft)
+        head.addLayout(col, 1)
+        icon = QtWidgets.QLabel()
+        icon.setPixmap(QtGui.QIcon.fromTheme("printer").pixmap(128, 128))
+        head.addWidget(icon)
+        self.ov_body.addWidget(hero_frame)
+
+        grid = QtWidgets.QGridLayout()
+        grid.setSpacing(12)
+        self.ov_tiles = {
+            self.PRINT: tile("Drucken", "Dokumente und Fotos", "document-print", lambda: self.go(self.PRINT)),
+            self.SCAN: tile("Scannen", "Als PDF oder Bild speichern", "scanner", lambda: self.go(self.SCAN)),
+            self.FAX: tile("Fax", "Dokumente senden", "mail-send", lambda: self.go(self.FAX)),
+            self.MAINT: tile("Wartung", "Reinigen, Berichte, Aufträge", "configure", lambda: self.go(self.MAINT)),
+        }
+        for i, w in enumerate(self.ov_tiles.values()):
+            grid.addWidget(w, 0, i)
+        self.ov_body.addLayout(grid)
+        self.sync_tiles()
 
         self.ov_msgs_box, self.ov_msgs = group("Meldungen")
         self.ov_body.addWidget(self.ov_msgs_box)
@@ -1154,9 +1256,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ov_ink_box, self.ov_ink = group("Tinte")
         self.ov_body.addWidget(self.ov_ink_box)
         self.ov_feat_box, self.ov_feat = group("Funktionen")
+        self.ov_feat_row = QtWidgets.QHBoxLayout()
         self.ov_feat_label = QtWidgets.QLabel("wird erkannt …")
-        self.ov_feat_label.setWordWrap(True)
-        self.ov_feat.addWidget(self.ov_feat_label)
+        self.ov_feat_label.setObjectName("dim")
+        self.ov_feat_row.addWidget(self.ov_feat_label)
+        self.ov_feat_row.addStretch(1)
+        self.ov_feat.addLayout(self.ov_feat_row)
         self.ov_body.addWidget(self.ov_feat_box)
 
         dev, dl = group("Gerät")
@@ -1184,7 +1289,11 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         try:
             state = res.get("state") or ("Erreichbar" if res.get("markers") else "Unbekannt")
-            self.ov_state.setText(state)
+            self.ov_state.setText(("● " + state) if state else state)
+            kind = "chip_warn" if res.get("reasons") else ("chip_ok" if res.get("state") else "chip_off")
+            self.ov_state.setObjectName(kind)
+            self.ov_state.style().unpolish(self.ov_state)
+            self.ov_state.style().polish(self.ov_state)
             self.clear(self.ov_msgs)
             texts = [reason_text(r) for r in res.get("reasons", [])] + ([res["message"]] if res.get("message") else [])
             h = QtWidgets.QLabel("Meldungen")
@@ -1232,9 +1341,28 @@ class MainWindow(QtWidgets.QMainWindow):
         if p.caps and p.caps.get("fax"):
             feats.append("✓ Fax")
         try:
-            self.ov_feat_label.setText("     ".join(feats) if feats else "Erst nach dem Einrichten bekannt.")
+            self.clear(self.ov_feat_row)
+            for f in feats:
+                lab = QtWidgets.QLabel(f.replace("✓ ", ""))
+                lab.setObjectName("chip_off" if f.startswith("✗") else "badge")
+                self.ov_feat_row.addWidget(lab)
+            if not feats:
+                lab = QtWidgets.QLabel("Erst nach dem Einrichten bekannt.")
+                lab.setObjectName("dim")
+                self.ov_feat_row.addWidget(lab)
+            self.ov_feat_row.addStretch(1)
+            self.ov_feat_label = lab if not feats else self.ov_feat_label
         except RuntimeError:
             pass
+
+    def sync_tiles(self):
+        p = self.current
+        show = {self.SCAN: bool(self.scanners), self.FAX: bool(p and p.caps and p.caps.get("fax"))}
+        for page, w in getattr(self, "ov_tiles", {}).items():
+            try:
+                w.setVisible(show.get(page, True))
+            except RuntimeError:
+                pass
 
     def printer_has_scanner(self, p):
         words = [w for w in re.findall(r"[a-z0-9]+", (p.model or p.title).lower())
@@ -1488,6 +1616,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.print_btn.setEnabled(bool(p and p.queue))
         self.print_hint.setVisible(bool(p and not p.queue))
         self.nav.item(self.SCAN).setHidden(not self.scanners)
+        self.sync_tiles()
         has_fax = bool(p and p.caps and p.caps.get("fax"))
         self.nav.item(self.FAX).setHidden(not has_fax)
         if not has_fax and self.stack.currentIndex() == self.FAX:
@@ -1596,7 +1725,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def run_wizard(self):
         wiz = SetupWizard(self)
-        wiz.setStyleSheet(QSS)
+        wiz.setStyleSheet(make_qss())
         wiz.exec()
         self.settings.setValue("setup_done", True)
         self.search()
