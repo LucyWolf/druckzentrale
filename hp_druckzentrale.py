@@ -26,7 +26,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "HP Druckzentrale"
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 UPDATE_REPO = "LucyWolf/hp-druckzentrale"
 INSTALL_DIR = os.path.expanduser("~/.local/share/hp-druckzentrale")
 HPLIP_DIR = "/usr/share/hplip"
@@ -1068,6 +1068,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.current = None
         self.scanners = []
         self.pages = []          # PNG-Dateien der aktuellen Scans
+        self.scan_saved = True   # False, solange gescannte Seiten nicht gespeichert sind
         self.scan_dpi = "300"
         self.status_cache = {}   # Drucker-Schluessel -> letzter Status
         self.settings = QtCore.QSettings("hp-druckzentrale", "hp-druckzentrale")
@@ -1137,7 +1138,7 @@ class MainWindow(QtWidgets.QMainWindow):
         home.setObjectName("roundacc")
         self.set_icon(home, "printer", "🖨")
         home.setToolTip("Mein Drucker")
-        home.clicked.connect(lambda: self.go(self.HOME if self.current else self.PRINTERS))
+        home.clicked.connect(lambda: self.leave_scan_ok() and self.go(self.HOME if self.current else self.PRINTERS))
         pl.addWidget(home)
         bar.addWidget(pill)
         bar.addStretch(1)
@@ -1194,8 +1195,45 @@ class MainWindow(QtWidgets.QMainWindow):
             self.go(self.PRINTERS)
         elif page == self.PRINTERS and self.current:
             self.go(self.HOME)
-        elif page in (self.PRINT, self.SCAN, self.FAX):
+        elif page == self.SCAN:
+            if self.leave_scan_ok(discard=True):
+                self.go(self.HOME)
+        elif page in (self.PRINT, self.FAX):
             self.go(self.HOME)
+
+    def leave_scan_ok(self, discard=False):
+        """Ungespeicherte Scans: nachfragen. True = weitermachen (gespeichert oder verworfen)."""
+        if self.stack.currentIndex() != self.SCAN and not discard:
+            return True
+        if not self.page_view.count() or self.scan_saved:
+            if discard:
+                self.clear_pages(ask=False)
+            return True
+        box = QtWidgets.QMessageBox(self)
+        box.setWindowTitle(APP_NAME)
+        box.setIcon(QtWidgets.QMessageBox.Question)
+        box.setText(f"{self.page_view.count()} gescannte Seite(n) sind noch nicht gespeichert.")
+        box.setInformativeText("Willst du sie wirklich verwerfen?")
+        save = box.addButton("Speichern…", QtWidgets.QMessageBox.AcceptRole)
+        drop = box.addButton("Verwerfen", QtWidgets.QMessageBox.DestructiveRole)
+        box.addButton("Abbrechen", QtWidgets.QMessageBox.RejectRole)
+        box.setDefaultButton(save)
+        box.exec()
+        if box.clickedButton() is save:
+            self.save_scan()
+            return False
+        if box.clickedButton() is drop:
+            self.clear_pages(ask=False)
+            return True
+        return False
+
+    def closeEvent(self, e):
+        if self.page_view.count() and not self.scan_saved:
+            self.go(self.SCAN)
+            if not self.leave_scan_ok(discard=True):
+                e.ignore()
+                return
+        e.accept()
 
     @staticmethod
     def clear(layout):
@@ -1792,7 +1830,7 @@ class MainWindow(QtWidgets.QMainWindow):
         delete = QtWidgets.QPushButton("Ausgewählte löschen")
         delete.clicked.connect(self.delete_pages)
         clear = QtWidgets.QPushButton("Alle löschen")
-        clear.clicked.connect(self.clear_pages)
+        clear.clicked.connect(lambda: self.clear_pages())
         self.save_fmt = QtWidgets.QComboBox()
         for lbl, ext in SAVE_FORMATS:
             self.save_fmt.addItem(lbl, ext)
@@ -1940,6 +1978,8 @@ class MainWindow(QtWidgets.QMainWindow):
                                              f"Seite {self.page_view.count() + 1}")
             item.setData(QtCore.Qt.UserRole, f)
             self.page_view.addItem(item)
+        if files:
+            self.scan_saved = False
         if self.page_view.count():
             self.scan_area_stack.setCurrentIndex(2)
 
@@ -1948,7 +1988,11 @@ class MainWindow(QtWidgets.QMainWindow):
                                                           "Bilder (*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp)")
         self.add_page_files(files)
 
-    def clear_pages(self):
+    def clear_pages(self, ask=True):
+        if ask and self.page_view.count() and not self.scan_saved and self.stack.currentIndex() == self.SCAN:
+            self.leave_scan_ok(discard=True)
+            return
+        self.scan_saved = True
         self.page_view.clear()
         self.pages.clear()
         self.scan_area_stack.setCurrentIndex(0)
@@ -2062,8 +2106,11 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         if not path.lower().endswith("." + ext):
             path += "." + ext
-        bg(lambda: save_pages(files, path, ext, self.scan_dpi),
-           lambda ok, res: self.status.showMessage(("Gespeichert: " + ", ".join(res)) if ok else f"Speichern fehlgeschlagen: {res}"))
+        def done(ok, res):
+            self.status.showMessage(("Gespeichert: " + ", ".join(res)) if ok else f"Speichern fehlgeschlagen: {res}")
+            if ok:
+                self.scan_saved = True
+        bg(lambda: save_pages(files, path, ext, self.scan_dpi), done)
 
     # ----- Fax -----
     def build_fax_tab(self):
