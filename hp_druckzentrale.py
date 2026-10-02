@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import urllib.parse
 import urllib.request
 import webbrowser
 
@@ -128,7 +129,7 @@ class Printer:
         self.model = ""
         self.info = ""
         self.serial = ""
-        self.host = ""
+        self.host = ""          # IP-Adresse im Netz (fuer Weboberflaeche und direkte IPP-Abfrage)
         self.caps = None         # {"fax", "scan"} aus HPLIP
 
     @property
@@ -157,7 +158,9 @@ class Printer:
     def ipp_uri(self):
         if self.queue:
             return None
-        return next((u for u in self.uris if u.startswith(("ipp://", "ipps://"))), None)
+        if re.fullmatch(r"[\d.]+", self.host or ""):
+            return f"ipp://{self.host}:631/ipp/print"   # mDNS-Namen kann CUPS hier nicht aufloesen
+        return next((u for u in self.uris if u.startswith(("ipp://", "ipps://")) and ".local" not in u), None)
 
 
 def uri_ids(uri):
@@ -165,6 +168,35 @@ def uri_ids(uri):
     uuid = re.search(r"uuid=([^&]+)", uri)
     host = re.search(r"(?:ip=|://)([^/:?&]+)", uri)
     return (serial.group(1) if serial else ""), (uuid.group(1) if uuid else ""), (host.group(1) if host else "")
+
+
+def mdns_ipv4():
+    """Dienstname -> IPv4 fuer alle IPP-Drucker im Netz (Avahi)."""
+    rc, out, _ = run(["avahi-browse", "-rpt", "_ipp._tcp"], 12)
+    ips = {}
+    for line in out.splitlines():
+        f = line.split(";")
+        if len(f) > 8 and f[0] == "=" and f[2] == "IPv4":
+            name = re.sub(r"\\(\d{3})", lambda m: chr(int(m.group(1))), f[3])
+            ips[name] = f[7]
+    return ips
+
+
+_hp_uri_cache = {}
+
+
+def hp_uri_from_ip(ip):
+    """HPLIP-Adresse (hp:/net/...) aus der IP; HPLIP braucht sie fuer Tinte, Faehigkeiten und Fax."""
+    if ip not in _hp_uri_cache:
+        rc, out, _ = run(["hp-makeuri", ip], 40)
+        m = re.search(r"CUPS URI:\s*(hp:/net/\S+)", out)
+        _hp_uri_cache[ip] = m.group(1) if m else ""
+    return _hp_uri_cache[ip]
+
+
+def service_name(uri):
+    m = re.match(r"(?:dnssd|ipps?)://([^/]+?)\._ipps?\._tcp", uri)
+    return urllib.parse.unquote(m.group(1)) if m else None
 
 
 def discover():
@@ -223,6 +255,22 @@ def discover():
             continue   # nur Backend-Platzhalter wie "hp", "hpfax" oder "socket", kein Geraet
         if is_hp(uri) or is_hp(model) or is_hp(d.get("device-info", "")):
             add(uri, model, d.get("device-info", ""))
+    # Netzwerkdrucker: IP ueber mDNS, daraus die HPLIP-Adresse
+    if any("usb" not in p.uri for p in printers):
+        ips = mdns_ipv4()
+        for p in printers:
+            if p.connection == "USB":
+                continue
+            ip = next((ips[n] for n in (service_name(u) for u in p.uris) if n in ips), None) \
+                or next((m.group(1) for m in (re.search(r"ip=([\d.]+)", u) for u in p.uris) if m), None)
+            if ip:
+                p.host = ip
+                if not hp_uri_for(p) and shutil.which("hp-makeuri"):
+                    u = hp_uri_from_ip(ip)
+                    if u:
+                        p.uris.append(u)
+            elif p.host and not re.fullmatch(r"[\w.-]+", p.host):
+                p.host = ""   # kein brauchbarer Hostname (z.B. mDNS-Dienstname)
     # Fax-Warteschlangen dem Geraet zuordnen
     for name, q in queues.items():
         uri = q.get("device-uri", "")
@@ -249,9 +297,11 @@ def query_status(p):
         try:
             if p.queue:
                 attrs = conn.getPrinterAttributes(p.queue, requested_attributes=STATUS_ATTRS)
-            elif p.ipp_uri():
-                attrs = conn.getPrinterAttributes(uri=p.ipp_uri(), requested_attributes=STATUS_ATTRS)
-        except cups.IPPError:
+            elif re.fullmatch(r"[\d.]+", p.host or ""):
+                # pycups fragt sonst den lokalen CUPS-Dienst; der Drucker ist selbst ein IPP-Server
+                attrs = cups.Connection(host=p.host, port=631).getPrinterAttributes(
+                    uri=f"ipp://{p.host}:631/ipp/print", requested_attributes=STATUS_ATTRS)
+        except (cups.IPPError, RuntimeError):   # RuntimeError: Drucker gerade nicht erreichbar
             attrs = None
     if attrs:
         state = {3: "Bereit", 4: "Druckt", 5: "Angehalten"}.get(attrs.get("printer-state"), "")
@@ -265,6 +315,21 @@ def query_status(p):
                                    "color": colors[i] if i < len(colors) else ""})
         for key in ("sides-supported", "print-color-mode-supported", "media-supported", "print-quality-supported"):
             res["supported"][key] = _list(attrs.get(key))
+    # CUPS kennt die Tinte einer Warteschlange oft erst nach dem ersten Auftrag: dann den Drucker direkt fragen
+    if not res["markers"] and cups is not None and re.fullmatch(r"[\d.]+", p.host or ""):
+        try:
+            direct = cups.Connection(host=p.host, port=631).getPrinterAttributes(
+                uri=f"ipp://{p.host}:631/ipp/print",
+                requested_attributes=["marker-names", "marker-levels", "marker-colors", "printer-state-reasons"])
+            res["reasons"] += [r for r in _list(direct.get("printer-state-reasons"))
+                               if r != "none" and r not in res["reasons"]]
+            names, levels = _list(direct.get("marker-names")), _list(direct.get("marker-levels"))
+            colors = _list(direct.get("marker-colors"))
+            for i, name in enumerate(names):
+                res["markers"].append({"name": name, "level": levels[i] if i < len(levels) else -1,
+                                       "color": colors[i] if i < len(colors) else ""})
+        except (cups.IPPError, RuntimeError):
+            pass
     hp = hp_uri_for(p)
     if not res["markers"] and hp:
         data = hplip("levels", hp)
@@ -294,6 +359,15 @@ REASONS_DE = {
 def reason_text(r):
     base = re.sub(r"-(report|warning|error)$", "", r)
     return REASONS_DE.get(base, base)
+
+
+INK_DE = {"black": "Schwarz", "cyan": "Cyan", "magenta": "Magenta", "yellow": "Gelb", "photo black": "Fotoschwarz",
+          "tri-color": "Dreifarbig", "color": "Farbe", "gray": "Grau", "light cyan": "Hellcyan", "light magenta": "Hellmagenta"}
+
+
+def ink_name(name):
+    base = re.sub(r"\s*(ink|toner|cartridge|patrone)s?\s*$", "", (name or "").strip(), flags=re.I).lower()
+    return INK_DE.get(base, name or "Tinte")
 
 
 def marker_color(m):
@@ -455,7 +529,7 @@ class InkBar(QtWidgets.QWidget):
         r = self.rect().adjusted(150, 6, -60, -6)
         p.setPen(self.palette().color(QtGui.QPalette.WindowText))
         p.drawText(QtCore.QRect(0, 0, 145, self.height()), QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft,
-                   self.fontMetrics().elidedText(self.m["name"], QtCore.Qt.ElideRight, 145))
+                   self.fontMetrics().elidedText(ink_name(self.m["name"]), QtCore.Qt.ElideRight, 145))
         p.setPen(QtCore.Qt.NoPen)
         p.setBrush(self.palette().color(QtGui.QPalette.Mid))
         p.drawRoundedRect(r, 5, 5)
