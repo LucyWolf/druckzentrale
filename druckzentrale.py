@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.16"
+APP_VERSION = "1.0.17"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 INSTALL_DIR = os.path.expanduser("~/.local/share/druckzentrale")
@@ -1921,7 +1921,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.copies.setRange(1, 99)
         self.pages_edit = QtWidgets.QLineEdit()
         self.pages_edit.setPlaceholderText("alle, oder z. B. 1-3,5")
-        self.sides = QtWidgets.QComboBox()
+        self.sides = QtWidgets.QCheckBox("Beidseitig drucken")
+        self.sides.setChecked(True)
         self.color = QtWidgets.QComboBox()
         self.media = QtWidgets.QComboBox()
         self.quality = QtWidgets.QComboBox()
@@ -1929,7 +1930,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fit.setChecked(True)
         form.addRow("Kopien", self.copies)
         form.addRow("Seiten", self.pages_edit)
-        form.addRow("Seiten bedrucken", self.sides)
+        form.addRow("", self.sides)
         form.addRow("Farbe", self.color)
         form.addRow("Papier", self.media)
         form.addRow("Qualität", self.quality)
@@ -1952,10 +1953,8 @@ class MainWindow(QtWidgets.QMainWindow):
             i = combo.findData(keep if keep is not None else current)
             combo.setCurrentIndex(max(0, i))
         sides = sup.get("sides-supported") or ["one-sided", "two-sided-long-edge", "two-sided-short-edge"]
-        # Nur einseitig/beidseitig; beidseitig = umblaettern wie ein Buch (lange Kante)
-        fill(self.sides, [(lbl, v) for v, lbl in (("one-sided", "Einseitig"), ("two-sided-long-edge", "Beidseitig"))
-                          if v in sides],
-             "two-sided-long-edge")   # beidseitig als Standard, wo der Drucker es kann
+        # Haken nur zeigen, wenn der Drucker beidseitig kann (umblaettern wie ein Buch)
+        self.sides.setVisible("two-sided-long-edge" in sides)
         modes = sup.get("print-color-mode-supported") or ["color", "monochrome"]
         fill(self.color, [(lbl, v) for v, lbl in (("color", "Farbe"), ("monochrome", "Schwarzweiß")) if v in modes])
         media = sup.get("media-supported") or ["iso_a4_210x297mm", "iso_a5_148x210mm", "na_letter_8.5x11in", "na_index-4x6_4x6in"]
@@ -1983,7 +1982,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.status.showMessage("Erst Dateien hinzufügen.")
             return
         opts = {"copies": str(self.copies.value())}
-        for combo, key in ((self.sides, "sides"), (self.color, "print-color-mode"), (self.media, "media"),
+        opts["sides"] = "two-sided-long-edge" if self.sides.isVisible() and self.sides.isChecked() else "one-sided"
+        for combo, key in ((self.color, "print-color-mode"), (self.media, "media"),
                            (self.quality, "print-quality")):
             if combo.currentData():
                 opts[key] = str(combo.currentData())
