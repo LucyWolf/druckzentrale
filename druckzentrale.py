@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.17"
+APP_VERSION = "1.0.18"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 INSTALL_DIR = os.path.expanduser("~/.local/share/druckzentrale")
@@ -599,7 +599,45 @@ def scanner_options(dev):
     return opts
 
 
-SCAN_AREAS = [("Gesamter Scanbereich", None), ("A4", (210, 297)), ("A5", (148, 210)), ("Letter", (215.9, 279.4)),
+MEDIA_NAMES = {"letter": "Letter", "legal": "Legal", "executive": "Executive", "govt-letter": "Government Letter",
+               "invoice": "Statement", "hagaki": "Postkarte (Hagaki)", "oufuku": "Antwortpostkarte", "index-4x6": "Foto 10×15",
+               "index-5x8": "Karteikarte 13×20", "index-3x5": "Karteikarte 8×13", "5x7": "Foto 13×18",
+               "photo-l": "Foto 9×13", "small-photo": "Foto 10×15", "hp-greeting-card": "Grußkarte",
+               "monarch": "Umschlag Monarch", "number-10": "Umschlag US Nr. 10", "dl": "Umschlag DL", "c5": "Umschlag C5",
+               "c6": "Umschlag C6", "a2": "Umschlag A2", "chou3": "Umschlag Chou 3", "chou4": "Umschlag Chou 4",
+               "foolscap": "Foolscap", "oficio": "Oficio", "16k": "16K"}
+
+
+def pretty_media(name):
+    """PWG-Name (z. B. na_executive_7.25x10.5in) -> „Executive (184 × 267 mm)“; Sortierschluessel dazu."""
+    mb = re.match(r"(?:[a-z]+_)?(.+?)\.borderless(?:_.*)?$", name, re.I)
+    if mb:
+        base = mb.group(1)
+        known = {"A4": ("A4", 210, 297), "A5": ("A5", 148, 210), "A6": ("A6", 105, 148), "B5": ("B5", 182, 257),
+                 "Letter": ("Letter", 216, 279), "4x6": ("Foto 10×15", 102, 152), "100x150mm": ("Foto 10×15", 100, 150),
+                 "5x7": ("Foto 13×18", 127, 178), "3.5x5": ("Foto 9×13", 89, 127), "8x10": ("Foto 20×25", 203, 254),
+                 "Postcard": ("Postkarte", 100, 148)}
+        base = next((k for k in known if k.lower() == base.lower()), base)
+        if base in known:
+            nice, wm, hm = known[base]
+            return f"{nice} randlos ({wm} × {hm} mm)", (5, nice)
+        return f"{base} randlos", (6, base)
+    m = re.match(r"([a-z]+)_(.+)_([\d.]+)x([\d.]+)(mm|in)$", name)
+    if not m:
+        return name, (9, name)
+    region, label, w, h, unit = m.groups()
+    f = 25.4 if unit == "in" else 1.0
+    wm, hm = round(float(w) * f), round(float(h) * f)
+    nice = MEDIA_NAMES.get(label) or (label.upper() if region == "iso" or re.fullmatch(r"[ab]\d+", label) else
+                                      label.replace("-", " ").title())
+    if region == "jis":
+        nice += " (JIS)"
+    group = 0 if name == "iso_a4_210x297mm" else 1 if region == "iso" and not nice.startswith("Umschlag") else \
+        2 if nice.startswith("Foto") else 4 if nice.startswith("Umschlag") else 3
+    return f"{nice} ({wm} × {hm} mm)", (group, nice)
+
+
+SCAN_AREAS = [("Gesamter Scanbereich", None), ("A4", (210, 297)), ("A5", (148, 210)), ("Letter", (215.9, 279.4)), ("Legal", (215.9, 355.6)),
               ("Foto 10×15", (101.6, 152.4)), ("Foto 13×18", (127, 178))]
 
 
@@ -657,6 +695,31 @@ def adf_loaded(ip):
         except Exception:
             continue
     return None
+
+
+def escl_caps(ip):
+    """Je Quelle (platen, adf, adf-duplex): groesste Flaeche in mm und Aufloesungen, laut Scanner selbst."""
+    for url in (f"https://{ip}/eSCL/ScannerCapabilities", f"http://{ip}/eSCL/ScannerCapabilities"):
+        try:
+            with urllib.request.urlopen(url, timeout=6, context=_ssl_ctx() if url.startswith("https") else None) as r:
+                xml = r.read().decode("utf-8", "replace")
+            break
+        except Exception:
+            xml = ""
+    caps = {}
+
+    def parse(block):
+        mw = re.search(r"<scan:MaxWidth>(\d+)", block)
+        mh = re.search(r"<scan:MaxHeight>(\d+)", block)
+        res = sorted({int(x) for x in re.findall(r"<scan:XResolution>(\d+)", block)})
+        if mw and mh:
+            return {"w": int(mw.group(1)) / 300 * 25.4, "h": int(mh.group(1)) / 300 * 25.4, "res": res}
+        return None
+    for key, tag in (("platen", "Platen"), ("adf", "AdfSimplexInputCaps"), ("adf-duplex", "AdfDuplexInputCaps")):
+        m = re.search(rf"<scan:{tag}>(.*?)</scan:{tag}>", xml, re.S)
+        if m and parse(m.group(1)):
+            caps[key] = parse(m.group(1))
+    return caps
 
 
 def scanner_ip(dev, desc):
@@ -1774,6 +1837,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.photo_mode = photos
         if photos:
             i = self.media.findData("na_index-4x6_4x6in")
+            if i < 0:
+                i = self.media.findData("om_small-photo_100x150mm")
             if i >= 0:
                 self.media.setCurrentIndex(i)
         self.go(self.PRINT)
@@ -1958,11 +2023,9 @@ class MainWindow(QtWidgets.QMainWindow):
         modes = sup.get("print-color-mode-supported") or ["color", "monochrome"]
         fill(self.color, [(lbl, v) for v, lbl in (("color", "Farbe"), ("monochrome", "Schwarzweiß")) if v in modes])
         media = sup.get("media-supported") or ["iso_a4_210x297mm", "iso_a5_148x210mm", "na_letter_8.5x11in", "na_index-4x6_4x6in"]
-        nice = {"iso_a4_210x297mm": "A4", "iso_a5_148x210mm": "A5", "iso_a6_105x148mm": "A6", "na_letter_8.5x11in": "Letter",
-                "na_legal_8.5x14in": "Legal", "na_index-4x6_4x6in": "Foto 10×15", "na_5x7_5x7in": "Foto 13×18",
-                "iso_dl_110x220mm": "Umschlag DL", "iso_c5_162x229mm": "Umschlag C5"}
-        items = [(nice.get(m, m), m) for m in media if not m.startswith("custom_")]
-        items.sort(key=lambda x: (x[1] != "iso_a4_210x297mm", x[0] not in nice.values(), x[0]))
+        named = [(pretty_media(m), m) for m in media if not m.startswith("custom_")]
+        named.sort(key=lambda x: x[0][1])
+        items = [(label, m) for (label, _), m in named]
         fill(self.media, items, "iso_a4_210x297mm")
         qual = [str(q) for q in (sup.get("print-quality-supported") or [3, 4, 5])]
         fill(self.quality, [(lbl, v) for v, lbl in (("4", "Normal"), ("3", "Entwurf"), ("5", "Hoch")) if v in qual], "4")
@@ -2131,6 +2194,7 @@ class MainWindow(QtWidgets.QMainWindow):
         rl.addWidget(self.field("Quelle", self.scan_source))
         self.scan_duplex = QtWidgets.QCheckBox("Beidseitig")
         self.scan_duplex.hide()
+        self.scan_duplex.toggled.connect(self.source_changed)
         rl.addWidget(self.scan_duplex)
         self.scan_source.currentIndexChanged.connect(self.source_changed)
         self.scan_crop = QtWidgets.QCheckBox("Kanten erkennen")
@@ -2176,9 +2240,29 @@ class MainWindow(QtWidgets.QMainWindow):
     def is_feeder(self, src):
         return bool(src) and bool(re.search(r"adf|feeder", src, re.I))
 
-    def source_changed(self):
-        self.scan_duplex.setVisible(self.is_feeder(self.scan_source.currentData())
-                                    and bool(getattr(self, "duplex_value", None)))
+    def source_changed(self, *_):
+        feeder = self.is_feeder(self.scan_source.currentData())
+        self.scan_duplex.setVisible(feeder and bool(getattr(self, "duplex_value", None)))
+        # Aufloesungen und Scanbereiche nur, soweit die gewaehlte Quelle sie kann
+        caps = getattr(self, "scan_caps", {}) or {}
+        key = ("adf-duplex" if self.scan_duplex.isChecked() and self.scan_duplex.isVisible() else "adf") if feeder else "platen"
+        c = caps.get(key) or caps.get("adf" if feeder else "platen")
+        allres = getattr(self, "scan_res_all", None) or [self.scan_res.itemData(i) for i in range(self.scan_res.count())]
+        res = [r for r in allres if not c or not c["res"] or int(r) in c["res"]] or allres
+        cur = self.scan_res.currentData()
+        self.scan_res.blockSignals(True)
+        self.scan_res.clear()
+        for r in res:
+            self.scan_res.addItem(f"{r} dpi", r)
+        want = cur if cur in res else max((r for r in res if cur and int(r) <= int(cur)), key=int, default=res[-1] if res else None)
+        self.scan_res.setCurrentIndex(max(0, self.scan_res.findData(want)))
+        self.scan_res.blockSignals(False)
+        area = self.scan_area.currentText()
+        self.scan_area.clear()
+        for lbl, a in SCAN_AREAS:
+            if a is None or not c or (a[0] <= c["w"] + 1 and a[1] <= c["h"] + 1):
+                self.scan_area.addItem(lbl, a)
+        self.scan_area.setCurrentIndex(max(0, self.scan_area.findText(area)))
 
     def poll_adf(self):
         """Papier im Einzug -> Vorlageneinzug waehlen, Einzug leer -> Scannerglas (nur bei Aenderung)."""
@@ -2324,9 +2408,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 i = combo.findData("300" if key == "resolution" and "300" in choices else cur)
                 combo.setCurrentIndex(max(0, i))
             self.scan_source.setEnabled(self.scan_source.count() > 1)
+            self.scan_res_all = [self.scan_res.itemData(i) for i in range(self.scan_res.count())]
             self.apply_preset()
             self.adf_state = None
             self.source_changed()
+            i = self.scanner_combo.currentIndex()
+            ip = scanner_ip(dev, self.scanners[i][1] if 0 <= i < len(self.scanners) else "") or \
+                (self.current.host if self.current else None)
+            if ip:
+                bg(lambda: escl_caps(ip), lambda ok2, caps: (setattr(self, "scan_caps", caps if ok2 else {}),
+                                                            self.source_changed()))
         bg(lambda: scanner_options(dev), done)
 
     def do_scan(self):
