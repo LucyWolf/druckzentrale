@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.12"
+APP_VERSION = "1.0.13"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 INSTALL_DIR = os.path.expanduser("~/.local/share/druckzentrale")
@@ -2145,8 +2145,9 @@ class MainWindow(QtWidgets.QMainWindow):
         return page
 
     def apply_preset(self):
-        mode = "Gray" if self.scan_preset.currentData() == "Dokument" else "Color"
-        for combo, val in ((self.scan_mode, mode), (self.scan_res, "300")):
+        # Immer Farbe als Standard; Foto nur feiner aufgeloest
+        res = "600" if self.scan_preset.currentData() == "Foto" else "300"
+        for combo, val in ((self.scan_mode, "Color"), (self.scan_res, res)):
             i = combo.findData(val)
             if i >= 0:
                 combo.setCurrentIndex(i)
