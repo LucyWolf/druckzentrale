@@ -26,7 +26,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "HP Druckzentrale"
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 UPDATE_REPO = "LucyWolf/hp-druckzentrale"
 INSTALL_DIR = os.path.expanduser("~/.local/share/hp-druckzentrale")
 HPLIP_DIR = "/usr/share/hplip"
@@ -89,6 +89,10 @@ out = {}
 if mode == "caps":
     m = device.queryModelByURI(uri)
     out = {"fax": int(m.get("fax-type", 0) or 0), "scan": int(m.get("scan-type", 0) or 0)}
+elif mode == "faxppd":
+    from prnt import cups as hcups
+    ppd, kind, nick = hcups.getFaxPPDFile(device.queryModelByURI(uri), "fax")
+    out = {"ppd": ppd or "", "nick": nick or ""}
 else:
     d = device.Device(uri)
     try:
@@ -412,6 +416,25 @@ def setup_printer(p):
     if rc != 0:
         raise RuntimeError((err or out or "lpadmin fehlgeschlagen").strip())
     return f"Eingerichtet als „{name}“."
+
+
+def setup_fax_queue(p):
+    """Fax-Warteschlange wie HPLIP sie anlegt: hpfax:-Adresse und der Faxtreiber, den HPLIP zum Modell waehlt."""
+    uri = hp_uri_for(p)
+    if not uri:
+        raise RuntimeError("HPLIP kennt diesen Drucker nicht.")
+    data = hplip("faxppd", uri)
+    ppd = (data or {}).get("ppd")
+    if not ppd:
+        raise RuntimeError("Kein HP-Faxtreiber gefunden (HPLIP vollständig installiert?).")
+    name = re.sub(r"[^A-Za-z0-9_-]+", "_", (p.queue or p.model or "HP")).strip("_")[:50] + "_Fax"
+    model = re.sub(r"\s+-\s+.*$", "", p.model or "HP")
+    cmd = ["pkexec", "lpadmin", "-p", name, "-E", "-v", uri.replace("hp:", "hpfax:", 1),
+           "-P" if os.path.exists(ppd) else "-m", ppd, "-D", f"{model} Fax"]
+    rc, out, err = run(cmd, 120)
+    if rc != 0:
+        raise RuntimeError((err or out or "lpadmin fehlgeschlagen").strip())
+    return name
 
 
 def remove_queue(name):
@@ -1980,7 +2003,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fax_hint = QtWidgets.QLabel()
         self.fax_hint.setWordWrap(True)
         lay.addWidget(self.fax_hint)
-        self.fax_setup_btn = QtWidgets.QPushButton("Fax einrichten (HPLIP-Assistent)")
+        self.fax_setup_btn = QtWidgets.QPushButton("Fax einrichten")
+        self.fax_setup_btn.setObjectName("primary")
         self.fax_setup_btn.clicked.connect(self.setup_fax)
         lay.addWidget(self.fax_setup_btn)
         form = QtWidgets.QFormLayout()
@@ -2014,8 +2038,8 @@ class MainWindow(QtWidgets.QMainWindow):
         p = self.current
         has_queue = bool(p and p.fax_queue)
         self.fax_hint.setText(f"Fax über die Warteschlange „{p.fax_queue}“." if has_queue else
-                              "Dieser Drucker kann faxen. Dafür richtet HPLIP eine eigene Fax-Warteschlange ein – "
-                              "einmalig über den Assistenten.")
+                              "Dieser Drucker kann faxen. Dafür wird einmalig eine eigene Fax-Warteschlange eingerichtet "
+                              "(fragt nach deinem Passwort). Am Drucker muss eine Telefonleitung angeschlossen sein.")
         self.fax_setup_btn.setVisible(not has_queue)
         self.fax_send.setEnabled(has_queue)
 
@@ -2024,8 +2048,18 @@ class MainWindow(QtWidgets.QMainWindow):
         uri = hp_uri_for(p) if p else ""
         if not uri:
             return
-        subprocess.Popen(["hp-setup", uri], start_new_session=True)
-        self.status.showMessage("HPLIP-Assistent gestartet – dort „Fax einrichten“ wählen, danach „Drucker suchen“.")
+        self.fax_setup_btn.setEnabled(False)
+        self.status.showMessage("Richte Fax ein … gleich fragt ein Fenster nach deinem Passwort.")
+
+        def done(ok, res):
+            self.fax_setup_btn.setEnabled(True)
+            if ok:
+                p.fax_queue = res
+                self.update_fax_state()
+                self.status.showMessage(f"Fax eingerichtet („{res}“).")
+            else:
+                self.status.showMessage(f"Fax einrichten fehlgeschlagen: {res}")
+        bg(lambda: setup_fax_queue(p), done)
 
     def add_fax_files(self):
         files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Dokumente faxen", os.path.expanduser("~"),
