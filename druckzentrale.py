@@ -29,15 +29,11 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.20"
+APP_VERSION = "1.0.21"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
-TESTED_PRINTERS = [
-    ("HP OfficeJet Pro 8620", "Netzwerk (LAN/WLAN)",
-     "Finden und Einrichten, Status und Tintenstand, Scannen (Glas und Vorlageneinzug), "
-     "Papierformate, Wartungs- und Faxerkennung"),
-]
+TESTED_PRINTERS = ["HP OfficeJet Pro 8620"]
 INSTALL_DIR = os.path.expanduser("~/.local/share/druckzentrale")
 OLD_INSTALL_DIR = os.path.expanduser("~/.local/share/hp-druckzentrale")
 DESKTOP_FILE = os.path.expanduser("~/.local/share/applications/druckzentrale.desktop")
@@ -1270,15 +1266,8 @@ class MainWindow(QtWidgets.QMainWindow):
         upd.addWidget(self.info_upd_label, 1)
         lay.addLayout(upd)
         g, gl = group("Getestete Drucker")
-        for model, conn, what in TESTED_PRINTERS:
-            row = QtWidgets.QLabel(f"<b>{model}</b> &nbsp;·&nbsp; {conn}<br><span>{what}</span>")
-            row.setWordWrap(True)
-            gl.addWidget(row)
-        note = QtWidgets.QLabel("Andere Drucker sollten über die Standards (IPP Everywhere/AirPrint, eSCL) ebenfalls "
-                                "funktionieren, sind aber noch nicht ausprobiert. Rückmeldungen gern auf GitHub.")
-        note.setObjectName("dim")
-        note.setWordWrap(True)
-        gl.addWidget(note)
+        for model in TESTED_PRINTERS:
+            gl.addWidget(QtWidgets.QLabel(model))
         lay.addWidget(g)
         lay.addStretch(1)
         row = QtWidgets.QHBoxLayout()
@@ -2408,30 +2397,47 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scan_area_stack.setCurrentIndex(0)
 
     def refresh_scanners(self):
-        self.scanner_combo.clear()
-        self.scanner_combo.addItem("Suche Scanner…", None)
-        self.scanner_combo.setEnabled(False)
+        # Die Suche (scanimage -L) dauert rund 10 s. Bekannte Scanner aus dem letzten Lauf sofort zeigen,
+        # im Hintergrund still nachsehen und nur bei einer Aenderung neu aufbauen.
+        try:
+            cached = [tuple(x) for x in json.loads(self.settings.value("scanners_cache", "[]") or "[]")]
+        except ValueError:
+            cached = []
+        if cached:
+            self.fill_scanners(True, cached)
+        else:
+            self.scanner_combo.clear()
+            self.scanner_combo.addItem("Suche Scanner…", None)
+            self.scanner_combo.setEnabled(False)
 
         def done(ok, res):
-            self.scanner_combo.blockSignals(True)
-            self.scanner_combo.clear()
-            self.scanners = res if ok else []
-            if not ok:
-                self.scanner_combo.addItem(f"Scannen nicht möglich: {res}", None)
-            elif not res:
-                self.scanner_combo.addItem("Kein Scanner gefunden", None)
-            for dev, desc in self.scanners:
-                kind = "Netzwerk/IPP" if dev.startswith("airscan") else "HPLIP"
-                short = re.sub(r"^eSCL\s+|\s+ip=.*$", "", desc)   # airscan haengt Protokoll und IPs an
-                self.scanner_combo.addItem(f"{short}  ({kind})", dev)
-            self.scanner_combo.setEnabled(bool(self.scanners))
-            self.scanner_field.setVisible(len(self.scanners) != 1)
-            self.scanner_combo.blockSignals(False)
-            self.match_scanner()
-            self.load_scanner_options()
-            self.update_actions()
-            self.fill_features()
+            if ok and res:
+                self.settings.setValue("scanners_cache", json.dumps(res))
+                if res != self.scanners:
+                    self.fill_scanners(True, res)
+            elif not cached:
+                self.fill_scanners(ok, res)   # nichts gefunden (bei bekanntem Scanner: evtl. nur gerade aus)
         bg(list_scanners, done)
+
+    def fill_scanners(self, ok, res):
+        self.scanner_combo.blockSignals(True)
+        self.scanner_combo.clear()
+        self.scanners = res if ok else []
+        if not ok:
+            self.scanner_combo.addItem(f"Scannen nicht möglich: {res}", None)
+        elif not res:
+            self.scanner_combo.addItem("Kein Scanner gefunden", None)
+        for dev, desc in self.scanners:
+            kind = "Netzwerk/IPP" if dev.startswith("airscan") else "HPLIP"
+            short = re.sub(r"^eSCL\s+|\s+ip=.*$", "", desc)   # airscan haengt Protokoll und IPs an
+            self.scanner_combo.addItem(f"{short}  ({kind})", dev)
+        self.scanner_combo.setEnabled(bool(self.scanners))
+        self.scanner_field.setVisible(len(self.scanners) != 1)
+        self.scanner_combo.blockSignals(False)
+        self.match_scanner()
+        self.load_scanner_options()
+        self.update_actions()
+        self.fill_features()
 
     def match_scanner(self):
         p = self.current
@@ -2483,7 +2489,23 @@ class MainWindow(QtWidgets.QMainWindow):
             if ip:
                 bg(lambda: escl_caps(ip), lambda ok2, caps: (setattr(self, "scan_caps", caps if ok2 else {}),
                                                             self.source_changed()))
-        bg(lambda: scanner_options(dev), done)
+        key = "scanopts/" + re.sub(r"[^A-Za-z0-9]", "_", dev)
+        try:
+            cached = json.loads(self.settings.value(key, "") or "null")
+        except ValueError:
+            cached = None
+        if cached:
+            done(True, cached)   # sofort aus dem letzten Lauf
+
+        def fresh(ok, opts):
+            if not ok or not opts:
+                if not cached:
+                    done(ok, opts)
+                return
+            if json.loads(json.dumps(opts)) != cached:
+                self.settings.setValue(key, json.dumps(opts))
+                done(True, opts)
+        bg(lambda: scanner_options(dev), fresh)
 
     def do_scan(self):
         dev, mode, res, src, area, crop = self.scan_args()
