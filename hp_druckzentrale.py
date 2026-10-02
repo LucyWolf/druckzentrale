@@ -26,7 +26,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "HP Druckzentrale"
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 UPDATE_REPO = "LucyWolf/hp-druckzentrale"
 INSTALL_DIR = os.path.expanduser("~/.local/share/hp-druckzentrale")
 HPLIP_DIR = "/usr/share/hplip"
@@ -430,9 +430,18 @@ def list_scanners():
         dev, desc = m.group(1), m.group(2).strip()
         if is_hp(dev) or is_hp(desc):
             found.append((dev, desc))
-    # airscan (eSCL) zuerst: funktioniert bei Netzwerk und IPP-over-USB treiberlos
+    # airscan (eSCL) zuerst: funktioniert bei Netzwerk und IPP-over-USB treiberlos. Dasselbe Geraet ueber
+    # HPLIP (hpaio) nur behalten, wenn es keinen airscan-Weg dafuer gibt.
     found.sort(key=lambda d: (not d[0].startswith("airscan"), d[1]))
-    return found
+    seen, unique = set(), []
+    for dev, desc in found:
+        words = re.findall(r"\d{3,}", desc + " " + dev)   # Modellnummer, z.B. 8620
+        key = words[0] if words else dev
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append((dev, desc))
+    return unique
 
 
 COMMON_DPI = [75, 100, 150, 200, 300, 600, 1200]
@@ -456,9 +465,29 @@ def scanner_options(dev):
     return opts
 
 
-def scan(dev, mode, res, source):
+SCAN_AREAS = [("Gesamter Scanbereich", None), ("A4", (210, 297)), ("A5", (148, 210)), ("Letter", (215.9, 279.4)),
+              ("Foto 10×15", (101.6, 152.4)), ("Foto 13×18", (127, 178))]
+
+
+def autocrop(path):
+    """Kanten erkennen: weissen/hellen Rand um das Dokument abschneiden."""
+    im = Image.open(path)
+    gray = im.convert("L")
+    mask = gray.point(lambda v: 255 if v < 235 else 0)
+    box = mask.getbbox()
+    if not box:
+        return
+    pad = 8
+    box = (max(0, box[0] - pad), max(0, box[1] - pad), min(im.width, box[2] + pad), min(im.height, box[3] + pad))
+    if (box[2] - box[0]) * (box[3] - box[1]) < 0.97 * im.width * im.height:
+        im.crop(box).save(path)
+
+
+def scan(dev, mode, res, source, area=None, crop=False):
     tmp = tempfile.mkdtemp(prefix="hp-scan-")
     args = ["scanimage", "-d", dev, "--format=png"]
+    if area:
+        args += ["-l", "0", "-t", "0", "-x", str(area[0]), "-y", str(area[1])]
     if mode:
         args += ["--mode", mode]
     if res:
@@ -474,6 +503,9 @@ def scan(dev, mode, res, source):
     files = sorted(os.path.join(tmp, f) for f in os.listdir(tmp) if f.endswith(".png"))
     if not files:
         raise RuntimeError((err or out or "Scan fehlgeschlagen").strip().splitlines()[-1])
+    if crop and Image is not None:
+        for f in files:
+            autocrop(f)
     return files
 
 
@@ -1025,7 +1057,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tab_fax = self.build_fax_tab()
         self.print_page = page_wrap("Drucken", self.tab_print)
         self.stack.addWidget(self.print_page)
-        self.stack.addWidget(page_wrap("Scannen", self.tab_scan))
+        self.stack.addWidget(self.tab_scan)
         self.stack.addWidget(page_wrap("Faxen", self.tab_fax))
 
         self.status = self.statusBar()
@@ -1643,57 +1675,188 @@ class MainWindow(QtWidgets.QMainWindow):
             webbrowser.open(f"http://{self.current.host}")
 
     # ----- Scannen -----
+    def field(self, label, widget):
+        """Feld mit kleiner Beschriftung ueber dem Wert, wie in HP Smart."""
+        f = QtWidgets.QFrame()
+        f.setStyleSheet(f"QFrame#field {{ border: 1px solid {LINE}; border-radius: 10px; }}"
+                        "QFrame#field QComboBox { border: none; background: transparent; padding: 0; font-size: 15px; }")
+        f.setObjectName("field")
+        lay = QtWidgets.QVBoxLayout(f)
+        lay.setContentsMargins(12, 6, 8, 6)
+        lay.setSpacing(0)
+        lab = QtWidgets.QLabel(label)
+        lab.setStyleSheet("font-size: 11px;")
+        lay.addWidget(lab)
+        lay.addWidget(widget)
+        return f
+
     def build_scan_tab(self):
-        w = QtWidgets.QWidget()
-        lay = QtWidgets.QVBoxLayout(w)
-        top = QtWidgets.QHBoxLayout()
-        self.scanner_combo = QtWidgets.QComboBox()
-        self.scanner_combo.currentIndexChanged.connect(self.load_scanner_options)
-        refresh = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("view-refresh"), "")
-        refresh.setToolTip("Scanner neu suchen")
-        refresh.clicked.connect(self.refresh_scanners)
-        top.addWidget(QtWidgets.QLabel("Scanner"))
-        top.addWidget(self.scanner_combo, 1)
-        top.addWidget(refresh)
-        lay.addLayout(top)
-        form = QtWidgets.QHBoxLayout()
-        self.scan_mode = QtWidgets.QComboBox()
-        self.scan_res = QtWidgets.QComboBox()
-        self.scan_source = QtWidgets.QComboBox()
-        for lbl, c in (("Farbe", self.scan_mode), ("Auflösung (dpi)", self.scan_res), ("Quelle", self.scan_source)):
-            form.addWidget(QtWidgets.QLabel(lbl))
-            form.addWidget(c, 1)
-        lay.addLayout(form)
-        self.scan_btn = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("scanner"), "Scannen")
-        self.scan_btn.setMinimumHeight(36)
-        self.scan_btn.setObjectName("primary")
-        self.scan_btn.clicked.connect(self.do_scan)
-        lay.addWidget(self.scan_btn)
+        page = QtWidgets.QWidget()
+        page.setObjectName("page")
+        outer = QtWidgets.QHBoxLayout(page)
+        outer.setContentsMargins(0, 10, 0, 16)
+        outer.setSpacing(18)
+
+        # links: Hinweis, Vorschau oder gescannte Seiten
+        left = QtWidgets.QVBoxLayout()
+        self.scan_area_stack = QtWidgets.QStackedWidget()
+        hint = QtWidgets.QLabel('Lege dein Dokument in den Scanner und wähle <b>Scannen</b> oder '
+                                f'<a href="import" style="color:{ACC_T}; text-decoration:none;">importiere</a> eine Datei.')
+        hint.setAlignment(QtCore.Qt.AlignCenter)
+        hint.setWordWrap(True)
+        hint.setStyleSheet("font-size: 17px;")
+        hint.linkActivated.connect(lambda _: self.import_pages())
+        hint_box = QtWidgets.QWidget()
+        hl = QtWidgets.QVBoxLayout(hint_box)
+        hl.addStretch(1)
+        hl.addWidget(hint)
+        hl.addStretch(1)
+        self.scan_area_stack.addWidget(hint_box)
+        self.preview_label = QtWidgets.QLabel()
+        self.preview_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.scan_area_stack.addWidget(self.preview_label)
+        pages_box = QtWidgets.QWidget()
+        pl = QtWidgets.QVBoxLayout(pages_box)
+        pl.setContentsMargins(0, 0, 0, 0)
         self.page_view = QtWidgets.QListWidget()
         self.page_view.setViewMode(QtWidgets.QListView.IconMode)
-        self.page_view.setIconSize(QtCore.QSize(160, 220))
+        self.page_view.setIconSize(QtCore.QSize(220, 300))
         self.page_view.setResizeMode(QtWidgets.QListView.Adjust)
         self.page_view.setMovement(QtWidgets.QListView.Snap)
         self.page_view.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
-        lay.addWidget(self.page_view, 1)
+        self.page_view.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.page_view.setStyleSheet(f"background: {BG}; border: none;")
+        pl.addWidget(self.page_view, 1)
         row = QtWidgets.QHBoxLayout()
-        delete = QtWidgets.QPushButton("Ausgewählte Seiten löschen")
+        more = QtWidgets.QPushButton("+ Seite importieren")
+        more.clicked.connect(self.import_pages)
+        delete = QtWidgets.QPushButton("Ausgewählte löschen")
         delete.clicked.connect(self.delete_pages)
         clear = QtWidgets.QPushButton("Alle löschen")
-        clear.clicked.connect(lambda: (self.page_view.clear(), self.pages.clear()))
+        clear.clicked.connect(self.clear_pages)
         self.save_fmt = QtWidgets.QComboBox()
         for lbl, ext in SAVE_FORMATS:
             self.save_fmt.addItem(lbl, ext)
-        save = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("document-save"), "Speichern…")
+        save = QtWidgets.QPushButton("Speichern…")
+        save.setObjectName("primary")
         save.clicked.connect(self.save_scan)
-        row.addWidget(delete)
-        row.addWidget(clear)
+        for w in (more, delete, clear):
+            row.addWidget(w)
         row.addStretch(1)
-        row.addWidget(QtWidgets.QLabel("Format"))
         row.addWidget(self.save_fmt)
         row.addWidget(save)
-        lay.addLayout(row)
-        return w
+        pl.addLayout(row)
+        self.scan_area_stack.addWidget(pages_box)
+        left.addWidget(self.scan_area_stack, 1)
+        note = QtWidgets.QLabel("Nimm das Original nach dem Scannen aus dem Gerät – liegt es im Scanner, "
+                                "kann jeder im Netzwerk es scannen.")
+        note.setObjectName("dim")
+        note.setAlignment(QtCore.Qt.AlignCenter)
+        note.setWordWrap(True)
+        note.setStyleSheet("font-size: 12px;")
+        left.addWidget(note)
+        outer.addLayout(left, 1)
+
+        # rechts: Einstellungen
+        panel = QtWidgets.QFrame()
+        panel.setObjectName("card")
+        panel.setFixedWidth(300)
+        rl = QtWidgets.QVBoxLayout(panel)
+        rl.setContentsMargins(18, 20, 18, 18)
+        rl.setSpacing(12)
+        self.scanner_combo = QtWidgets.QComboBox()
+        self.scanner_combo.currentIndexChanged.connect(self.load_scanner_options)
+        self.scanner_field = self.field("Scanner", self.scanner_combo)
+        rl.addWidget(self.scanner_field)
+        self.scan_source = QtWidgets.QComboBox()
+        rl.addWidget(self.field("Quelle", self.scan_source))
+        self.scan_crop = QtWidgets.QCheckBox("Kanten erkennen")
+        rl.addWidget(self.scan_crop)
+        self.scan_preset = QtWidgets.QComboBox()
+        for lbl in ("Dokument", "Foto"):
+            self.scan_preset.addItem(lbl, lbl)
+        self.scan_preset.currentIndexChanged.connect(self.apply_preset)
+        rl.addWidget(self.field("Voreinstellungen", self.scan_preset))
+        self.scan_area = QtWidgets.QComboBox()
+        for lbl, area in SCAN_AREAS:
+            self.scan_area.addItem(lbl, area)
+        rl.addWidget(self.field("Scanbereich", self.scan_area))
+        self.scan_mode = QtWidgets.QComboBox()
+        rl.addWidget(self.field("Ausgabe", self.scan_mode))
+        self.scan_res = QtWidgets.QComboBox()
+        rl.addWidget(self.field("Auflösung", self.scan_res))
+        reset = QtWidgets.QPushButton("Einstellungen zurücksetzen")
+        reset.setStyleSheet(f"background: transparent; color: {DIM};")
+        reset.clicked.connect(self.load_scanner_options)
+        rl.addWidget(reset)
+        rl.addStretch(1)
+        self.preview_btn = QtWidgets.QPushButton("Vorschau")
+        self.preview_btn.setMinimumHeight(44)
+        self.preview_btn.setStyleSheet("background: transparent; border: 1.5px solid #D6D6DE; border-radius: 22px;")
+        self.preview_btn.clicked.connect(self.do_preview)
+        rl.addWidget(self.preview_btn)
+        self.scan_btn = QtWidgets.QPushButton("Scannen")
+        self.scan_btn.setObjectName("primary")
+        self.scan_btn.setMinimumHeight(44)
+        self.scan_btn.setStyleSheet("border-radius: 22px;")
+        self.scan_btn.clicked.connect(self.do_scan)
+        rl.addWidget(self.scan_btn)
+        outer.addWidget(panel)
+        return page
+
+    def apply_preset(self):
+        mode = "Gray" if self.scan_preset.currentData() == "Dokument" else "Color"
+        for combo, val in ((self.scan_mode, mode), (self.scan_res, "300")):
+            i = combo.findData(val)
+            if i >= 0:
+                combo.setCurrentIndex(i)
+
+    def scan_args(self):
+        return (self.scanner_combo.currentData(), self.scan_mode.currentData(), self.scan_res.currentData(),
+                self.scan_source.currentData(), self.scan_area.currentData(), self.scan_crop.isChecked())
+
+    def do_preview(self):
+        dev, mode, res, src, area, crop = self.scan_args()
+        if not dev:
+            return
+        self.preview_btn.setEnabled(False)
+        self.preview_btn.setText("Vorschau läuft…")
+
+        def done(ok, files):
+            self.preview_btn.setEnabled(True)
+            self.preview_btn.setText("Vorschau")
+            if not ok:
+                self.status.showMessage(f"Vorschau fehlgeschlagen: {files}")
+                return
+            pix = QtGui.QPixmap(files[0])
+            self.preview_label.setPixmap(pix.scaled(self.preview_label.size() * 0.95, QtCore.Qt.KeepAspectRatio,
+                                                    QtCore.Qt.SmoothTransformation))
+            self.scan_area_stack.setCurrentIndex(1)
+        # Vorschau immer von der Glasscheibe, niedrige Aufloesung, nicht in die Seiten
+        flat = src if not (src and re.search(r"adf|feeder|duplex", src, re.I)) else None
+        bg(lambda: scan(dev, mode, "75" if "75" in [self.scan_res.itemData(i) for i in range(self.scan_res.count())]
+                        else res, flat, area, crop), done)
+
+    def add_page_files(self, files):
+        for f in files:
+            self.pages.append(f)
+            item = QtWidgets.QListWidgetItem(QtGui.QIcon(QtGui.QPixmap(f).scaled(440, 600, QtCore.Qt.KeepAspectRatio,
+                                                                                  QtCore.Qt.SmoothTransformation)),
+                                             f"Seite {self.page_view.count() + 1}")
+            item.setData(QtCore.Qt.UserRole, f)
+            self.page_view.addItem(item)
+        if self.page_view.count():
+            self.scan_area_stack.setCurrentIndex(2)
+
+    def import_pages(self):
+        files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Bilder importieren", os.path.expanduser("~"),
+                                                          "Bilder (*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp)")
+        self.add_page_files(files)
+
+    def clear_pages(self):
+        self.page_view.clear()
+        self.pages.clear()
+        self.scan_area_stack.setCurrentIndex(0)
 
     def refresh_scanners(self):
         self.scanner_combo.clear()
@@ -1713,6 +1876,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 short = re.sub(r"^eSCL\s+|\s+ip=.*$", "", desc)   # airscan haengt Protokoll und IPs an
                 self.scanner_combo.addItem(f"{short}  ({kind})", dev)
             self.scanner_combo.setEnabled(bool(self.scanners))
+            self.scanner_field.setVisible(len(self.scanners) != 1)
             self.scanner_combo.blockSignals(False)
             self.match_scanner()
             self.load_scanner_options()
@@ -1740,26 +1904,26 @@ class MainWindow(QtWidgets.QMainWindow):
             if dev != self.scanner_combo.currentData():
                 return
             opts = opts if ok else {}
-            names = {"Color": "Farbe", "Gray": "Graustufen", "Lineart": "Schwarzweiß", "Flatbed": "Glasscheibe",
+            names = {"Color": "Farbe", "Gray": "Graustufen", "Lineart": "Schwarzweiß", "Flatbed": "Scannerglas",
                      "ADF": "Einzug", "ADF Duplex": "Einzug beidseitig"}
             for key, combo, fallback in (("mode", self.scan_mode, ["Color", "Gray"]),
                                          ("resolution", self.scan_res, ["150", "300", "600"]),
                                          ("source", self.scan_source, [])):
                 choices, cur = opts.get(key, (fallback, fallback[1] if len(fallback) > 1 else ""))
                 for c in choices:
-                    combo.addItem(names.get(c, c), c)
+                    combo.addItem(f"{c} dpi" if key == "resolution" else names.get(c, c), c)
                 i = combo.findData("300" if key == "resolution" and "300" in choices else cur)
                 combo.setCurrentIndex(max(0, i))
             self.scan_source.setEnabled(self.scan_source.count() > 1)
+            self.apply_preset()
         bg(lambda: scanner_options(dev), done)
 
     def do_scan(self):
-        dev = self.scanner_combo.currentData()
+        dev, mode, res, src, area, crop = self.scan_args()
         if not dev:
             return
         self.scan_btn.setEnabled(False)
         self.scan_btn.setText("Scanne…")
-        mode, res, src = self.scan_mode.currentData(), self.scan_res.currentData(), self.scan_source.currentData()
 
         def done(ok, files):
             self.scan_btn.setEnabled(True)
@@ -1768,19 +1932,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.status.showMessage(f"Scan fehlgeschlagen: {files}")
                 return
             self.scan_dpi = res or "300"
-            for f in files:
-                self.pages.append(f)
-                item = QtWidgets.QListWidgetItem(QtGui.QIcon(QtGui.QPixmap(f).scaled(320, 440, QtCore.Qt.KeepAspectRatio,
-                                                                                      QtCore.Qt.SmoothTransformation)),
-                                                 f"Seite {self.page_view.count() + 1}")
-                item.setData(QtCore.Qt.UserRole, f)
-                self.page_view.addItem(item)
+            self.add_page_files(files)
             self.status.showMessage(f"{len(files)} Seite(n) gescannt.")
-        bg(lambda: scan(dev, mode, res, src), done)
+        bg(lambda: scan(dev, mode, res, src, area, crop), done)
 
     def delete_pages(self):
         for item in self.page_view.selectedItems():
             self.page_view.takeItem(self.page_view.row(item))
+        if not self.page_view.count():
+            self.scan_area_stack.setCurrentIndex(0)
 
     def save_scan(self):
         files = [self.page_view.item(i).data(QtCore.Qt.UserRole) for i in range(self.page_view.count())]
