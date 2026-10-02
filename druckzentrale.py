@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.13"
+APP_VERSION = "1.0.15"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 INSTALL_DIR = os.path.expanduser("~/.local/share/druckzentrale")
@@ -1036,6 +1036,14 @@ def printer_key(p):
     return p.serial or p.host or p.uri
 
 
+def real_name(p):
+    """Echter Geraetename, z. B. „HP Officejet Pro 8620“ (ohne Treiberzusatz wie „- IPP Everywhere“)."""
+    name = re.sub(r"\s+-\s+.*$", "", p.model or "").strip() or (p.info or p.queue or "Drucker").replace("_", " ")
+    if (is_hp(" ".join(p.uris)) or is_hp(p.info)) and not re.match(r"(hp|hewlett)", name, re.I):
+        name = "HP " + name
+    return name
+
+
 def is_toner(markers):
     return any("toner" in (m.get("name") or "").lower() for m in markers)
 
@@ -1077,6 +1085,10 @@ class MainWindow(QtWidgets.QMainWindow):
         right.setContentsMargins(22, 16, 22, 8)
         self.banner = QtWidgets.QVBoxLayout()
         right.addLayout(self.banner)
+        self.back_btn = QtWidgets.QPushButton("←  Übersicht")
+        self.back_btn.setCursor(QtCore.Qt.PointingHandCursor)
+        self.back_btn.clicked.connect(self.back_to_overview)
+        right.addWidget(self.back_btn, 0, QtCore.Qt.AlignLeft)
         self.stack = QtWidgets.QStackedWidget()
         right.addWidget(self.stack, 1)
         root.addLayout(right, 1)
@@ -1148,7 +1160,8 @@ class MainWindow(QtWidgets.QMainWindow):
         for label, icon_name in self.NAV:
             self.nav.addItem(QtWidgets.QListWidgetItem(QtGui.QIcon.fromTheme(icon_name), label))
         self.nav.currentRowChanged.connect(lambda r: r >= 0 and self.stack.setCurrentIndex(r))
-        lay.addWidget(self.nav, 1)
+        self.nav.hide()   # Bereiche erreicht man ueber die Kacheln der Uebersicht
+        lay.addStretch(1)
         self.update_btn = QtWidgets.QPushButton()
         self.update_btn.setObjectName("primary")
         self.update_btn.clicked.connect(self.update_clicked)
@@ -1185,8 +1198,14 @@ class MainWindow(QtWidgets.QMainWindow):
             lay.addWidget(inner, 1)
         return page
 
+    def back_to_overview(self):
+        if self.stack.currentIndex() == self.SCAN and not self.leave_scan_ok(discard=True):
+            return   # ungespeicherte Scans: Nutzerin hat abgebrochen
+        self.go(self.OVERVIEW)
+
     def go(self, page):
         self.stack.setCurrentIndex(page)
+        self.back_btn.setVisible(page != self.OVERVIEW)
         self.nav.blockSignals(True)
         self.nav.setCurrentRow(page)
         self.nav.blockSignals(False)
@@ -1749,7 +1768,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 MainWindow.clear(item.layout())
 
     def nickname(self, p):
-        return self.settings.value(f"nick/{printer_key(p)}", "") or "Mein Drucker"
+        return self.settings.value(f"nick/{printer_key(p)}", "") or real_name(p)
 
     def open_print(self, photos):
         self.photo_mode = photos
@@ -1934,7 +1953,8 @@ class MainWindow(QtWidgets.QMainWindow):
             combo.setCurrentIndex(max(0, i))
         sides = sup.get("sides-supported") or ["one-sided", "two-sided-long-edge", "two-sided-short-edge"]
         fill(self.sides, [(lbl, v) for v, lbl in (("one-sided", "Nein"), ("two-sided-long-edge", "Ja, lange Kante"),
-                                                    ("two-sided-short-edge", "Ja, kurze Kante")) if v in sides])
+                                                    ("two-sided-short-edge", "Ja, kurze Kante")) if v in sides],
+             "two-sided-long-edge")   # beidseitig als Standard, wo der Drucker es kann
         modes = sup.get("print-color-mode-supported") or ["color", "monochrome"]
         fill(self.color, [(lbl, v) for v, lbl in (("color", "Farbe"), ("monochrome", "Schwarzweiß")) if v in modes])
         media = sup.get("media-supported") or ["iso_a4_210x297mm", "iso_a5_148x210mm", "na_letter_8.5x11in", "na_index-4x6_4x6in"]
