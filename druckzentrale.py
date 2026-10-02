@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.26"
+APP_VERSION = "1.0.27"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -1419,14 +1419,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ov_msgs_box.hide()
         self.ov_ink_box, self.ov_ink = group("Tinte")
         self.ov_body.addWidget(self.ov_ink_box)
-        self.ov_feat_box, self.ov_feat = group("Funktionen")
-        self.ov_feat_row = QtWidgets.QHBoxLayout()
-        self.ov_feat_label = QtWidgets.QLabel("wird erkannt …")
-        self.ov_feat_label.setObjectName("dim")
-        self.ov_feat_row.addWidget(self.ov_feat_label)
-        self.ov_feat_row.addStretch(1)
-        self.ov_feat.addLayout(self.ov_feat_row)
-        self.ov_body.addWidget(self.ov_feat_box)
+        self.ov_feat_label = None   # Funktionen zeigen die Kacheln selbst
 
         dev, dl = group("Gerät")
         form = QtWidgets.QFormLayout()

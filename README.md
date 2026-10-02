@@ -41,7 +41,7 @@ bash Druckzentrale-installieren.sh
 
 - **Find printers** over USB and the network, any brand; the same printer found several ways is shown once
 - **Set up** with one click: driverless where possible, otherwise the matching installed driver is chosen automatically; a wizard guides through the first start
-- **Overview** per printer: status and messages, ink or toner levels, and what it can do (color, double-sided, scanner, fax) – the app only shows what the printer supports
+- **Overview** per printer: status and messages, ink or toner levels; scan and fax only appear if the printer has them
 - **Print** several files at once: copies, pages, double-sided, color/black and white, paper size, quality
 - **Scan** from the glass or the document feeder (detected automatically), preview, scan area, edge detection; save as **PDF** (multi-page), **JPG, PNG, BMP, TIFF** or **WEBP**; asks before unsaved scans are discarded
 - **Maintenance:** print jobs (view, cancel), test page, cleaning and self-test where the driver offers it; for HP printers also printhead cleaning in levels, print quality diagnostics, line feed calibration and printer reports
@@ -106,7 +106,7 @@ bash Druckzentrale-installieren.sh
 
 - **Drucker finden** über USB und Netzwerk, jede Marke; derselbe Drucker auf mehreren Wegen erscheint nur einmal
 - **Einrichten** mit einem Klick: treiberlos, wo es geht, sonst wählt die App den passenden installierten Treiber; beim ersten Start führt ein Assistent durch
-- **Übersicht** je Drucker: Status und Meldungen, Tinte oder Toner, und was er kann (Farbe, beidseitig, Scanner, Fax) – die App zeigt nur, was der Drucker unterstützt
+- **Übersicht** je Drucker: Status und Meldungen, Tinte oder Toner; Scannen und Fax erscheinen nur, wenn der Drucker sie hat
 - **Drucken** mehrerer Dateien auf einmal: Kopien, Seiten, beidseitig, Farbe/Schwarzweiß, Papierformat, Qualität
 - **Scannen** von der Glasscheibe oder aus dem Vorlageneinzug (wird erkannt), Vorschau, Scanbereich, Kanten erkennen; speichern als **PDF** (mehrseitig), **JPG, PNG, BMP, TIFF** oder **WEBP**; fragt nach, bevor ungespeicherte Scans verloren gehen
 - **Wartung:** Druckaufträge (ansehen, abbrechen), Testseite, Reinigung und Selbsttest, wo der Treiber es anbietet; bei HP-Druckern zusätzlich Druckkopfreinigung in Stufen, Druckqualitäts-Diagnose, Zeilenvorschub-Kalibrierung und Druckerberichte
