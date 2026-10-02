@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.24"
+APP_VERSION = "1.0.25"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -1934,7 +1934,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 MainWindow.clear(item.layout())
 
     def nickname(self, p):
-        return self.settings.value(f"nick/{printer_key(p)}", "") or real_name(p)
+        key = f"nick/{printer_key(p)}"
+        name = self.settings.value(key, "")
+        if not name:
+            # einmalig festlegen, danach nur noch den gespeicherten Namen lesen
+            name = real_name(p)
+            if p.model:   # ohne Modellangabe noch nicht festschreiben (sonst bliebe „Drucker“ stehen)
+                self.settings.setValue(key, name)
+        return name
 
     def open_print(self, photos):
         self.photo_mode = photos
