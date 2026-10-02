@@ -29,9 +29,15 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.18"
+APP_VERSION = "1.0.19"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
+# Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
+TESTED_PRINTERS = [
+    ("HP OfficeJet Pro 8620", "Netzwerk (LAN/WLAN)",
+     "Finden und Einrichten, Status und Tintenstand, Scannen (Glas und Vorlageneinzug), "
+     "Papierformate, Wartungs- und Faxerkennung"),
+]
 INSTALL_DIR = os.path.expanduser("~/.local/share/druckzentrale")
 OLD_INSTALL_DIR = os.path.expanduser("~/.local/share/hp-druckzentrale")
 DESKTOP_FILE = os.path.expanduser("~/.local/share/applications/druckzentrale.desktop")
@@ -1230,10 +1236,64 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_btn.clicked.connect(self.update_clicked)
         self.update_btn.hide()
         lay.addWidget(self.update_btn)
-        v = QtWidgets.QLabel(f"Version {APP_VERSION}")
-        v.setObjectName("dim")
+        v = QtWidgets.QPushButton(f"Version {APP_VERSION}  ·  Info")
+        v.setFlat(True)
+        v.setCursor(QtCore.Qt.PointingHandCursor)
+        v.setStyleSheet(f"text-align: left; background: transparent; color: {THEME.get('dim', '#888')}; padding: 4px 0;")
+        v.clicked.connect(self.show_info)
         lay.addWidget(v)
         return side
+
+    def show_info(self):
+        d = QtWidgets.QDialog(self)
+        d.setWindowTitle(f"Über {APP_NAME}")
+        d.setStyleSheet(make_qss())
+        d.resize(560, 520)
+        lay = QtWidgets.QVBoxLayout(d)
+        lay.setContentsMargins(24, 22, 24, 20)
+        lay.setSpacing(12)
+        t = QtWidgets.QLabel(APP_NAME)
+        t.setObjectName("title")
+        lay.addWidget(t)
+        v = QtWidgets.QLabel(f"Version {APP_VERSION}")
+        v.setObjectName("accent")
+        lay.addWidget(v)
+        desc = QtWidgets.QLabel("Drucken, Scannen, Tinte/Toner, Wartung und Fax für Drucker unter Linux. "
+                                "Inoffiziell und unabhängig von Druckerherstellern. Lizenz: MIT.")
+        desc.setWordWrap(True)
+        lay.addWidget(desc)
+        upd = QtWidgets.QHBoxLayout()
+        self.info_upd_label = QtWidgets.QLabel("")
+        self.info_upd_label.setObjectName("dim")
+        b = QtWidgets.QPushButton("Nach Updates suchen")
+        b.setObjectName("primary")
+        b.clicked.connect(self.manual_update)
+        upd.addWidget(b)
+        upd.addWidget(self.info_upd_label, 1)
+        lay.addLayout(upd)
+        g, gl = group("Getestete Drucker")
+        for model, conn, what in TESTED_PRINTERS:
+            row = QtWidgets.QLabel(f"<b>{model}</b> &nbsp;·&nbsp; {conn}<br><span>{what}</span>")
+            row.setWordWrap(True)
+            gl.addWidget(row)
+        note = QtWidgets.QLabel("Andere Drucker sollten über die Standards (IPP Everywhere/AirPrint, eSCL) ebenfalls "
+                                "funktionieren, sind aber noch nicht ausprobiert. Rückmeldungen gern auf GitHub.")
+        note.setObjectName("dim")
+        note.setWordWrap(True)
+        gl.addWidget(note)
+        lay.addWidget(g)
+        lay.addStretch(1)
+        row = QtWidgets.QHBoxLayout()
+        gh = QtWidgets.QPushButton("Projektseite auf GitHub")
+        gh.clicked.connect(lambda: webbrowser.open(f"https://github.com/{UPDATE_REPO}"))
+        close = QtWidgets.QPushButton("Schließen")
+        close.clicked.connect(d.accept)
+        row.addWidget(gh)
+        row.addStretch(1)
+        row.addWidget(close)
+        lay.addLayout(row)
+        d.exec()
+        self.info_upd_label = None
 
     def scroll_page(self):
         sc = QtWidgets.QScrollArea()
@@ -1876,7 +1936,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def check_update(self, manual=False):
         def done(ok, tag):
             if manual and not (ok and tag and ver_tuple(tag) > ver_tuple(APP_VERSION)):
-                self.status.showMessage(f"v{APP_VERSION} ist aktuell." if ok else f"Update-Prüfung fehlgeschlagen: {tag}")
+                msg = f"v{APP_VERSION} ist aktuell." if ok else f"Update-Prüfung fehlgeschlagen: {tag}"
+                self.status.showMessage(msg)
+                if getattr(self, "info_upd_label", None) is not None:
+                    self.info_upd_label.setText(msg)
             if ok and tag and ver_tuple(tag) > ver_tuple(APP_VERSION):
                 self.update_tag = tag
                 self.update_btn.setText(f"⬆ Update {tag}")
