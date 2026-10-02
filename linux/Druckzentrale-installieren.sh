@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# HP Druckzentrale — Linux-Installer
-# Per Doppelklick (ueber HP-Druckzentrale-*-installer.desktop) oder im Terminal.
+# Druckzentrale — Linux-Installer
+# Per Doppelklick (ueber Druckzentrale-*-installer.desktop) oder im Terminal.
 # Installiert alles, was die App braucht, mit einer einzigen Passwortabfrage:
-#   Pakete (Qt mit Wayland-Modul, CUPS, HPLIP, SANE + sane-airscan, ipp-usb, Avahi), Druck- und Netzwerkdienste,
+#   Pakete (Qt mit Wayland-Modul, CUPS, freie Druckertreiber, HPLIP, SANE + sane-airscan, ipp-usb, Avahi),
+#   Druck- und Netzwerkdienste,
 #   die App selbst nach ~/.local/share und einen Menueeintrag.
 # Ist sie schon installiert, fragt das Skript: aktualisieren oder deinstallieren.
 set -euo pipefail
 
-TITLE="HP Druckzentrale"
+TITLE="Druckzentrale"
 INSTALL_DIR="$HOME/.local/share/hp-druckzentrale"
 DESKTOP_FILE="$HOME/.local/share/applications/hp-druckzentrale.desktop"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$PWD/x}")" && pwd)"
-RELEASE_URL="https://github.com/LucyWolf/hp-druckzentrale/releases/latest/download"
+RELEASE_URL="https://github.com/LucyWolf/druckzentrale/releases/latest/download"
 
 GUI=0
 if command -v kdialog >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
@@ -54,13 +55,13 @@ uninstall() {
     rm -rf "$INSTALL_DIR"
     rm -f "$DESKTOP_FILE"
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$HOME/.local/share/applications" || true
-    info "HP Druckzentrale wurde entfernt.\n\nDie Pakete (CUPS, HPLIP, SANE …) und eingerichtete Drucker bleiben erhalten,\nandere Programme nutzen sie auch."
+    info "Druckzentrale wurde entfernt.\n\nDie Pakete (CUPS, HPLIP, SANE …) und eingerichtete Drucker bleiben erhalten,\nandere Programme nutzen sie auch."
     exit 0
 }
 
 # Schon installiert? Dann aktualisieren oder deinstallieren
 if [ -f "$INSTALL_DIR/hp_druckzentrale.py" ]; then
-    Q="HP Druckzentrale ist schon installiert."
+    Q="Druckzentrale ist schon installiert."
     case "$GUI" in
         1) set +e; kdialog --title "$TITLE" --yesnocancel "$Q" --yes-label "Aktualisieren" --no-label "Deinstallieren"
            CHOICE=$?; set -e ;;
@@ -96,23 +97,23 @@ fi
 
 # 2) Pakete je Distribution. Alles in einem Root-Schritt (ein Passwort).
 if command -v pacman >/dev/null 2>&1; then
-    PKGS="pyside6 qt6-wayland python-pycups python-pillow cups hplip sane sane-airscan ipp-usb avahi nss-mdns"
+    PKGS="pyside6 qt6-wayland python-pycups python-pillow cups cups-filters gutenprint foomatic-db foomatic-db-engine foomatic-db-ppds hplip sane sane-airscan ipp-usb avahi nss-mdns"
     HAVE="pacman -Q"
     INSTALL="pacman -S --needed --noconfirm"
 elif command -v apt-get >/dev/null 2>&1; then
-    PKGS="qt6-wayland python3-pyside6.qtwidgets python3-pyside6.qtgui python3-pyside6.qtcore python3-cups python3-pil cups hplip sane-utils sane-airscan ipp-usb avahi-daemon libnss-mdns"
+    PKGS="qt6-wayland python3-pyside6.qtwidgets python3-pyside6.qtgui python3-pyside6.qtcore python3-cups python3-pil cups cups-filters printer-driver-gutenprint foomatic-db-compressed-ppds hplip sane-utils sane-airscan ipp-usb avahi-daemon libnss-mdns"
     HAVE="dpkg -s"
     INSTALL="env DEBIAN_FRONTEND=noninteractive apt-get install -y"
 elif command -v dnf >/dev/null 2>&1; then
-    PKGS="python3-pyside6 qt6-qtwayland python3-cups python3-pillow cups hplip sane-backends sane-airscan ipp-usb avahi nss-mdns"
+    PKGS="python3-pyside6 qt6-qtwayland python3-cups python3-pillow cups cups-filters gutenprint-cups foomatic-db foomatic-db-ppds hplip sane-backends sane-airscan ipp-usb avahi nss-mdns"
     HAVE="rpm -q"
     INSTALL="dnf install -y"
 elif command -v zypper >/dev/null 2>&1; then
-    PKGS="python3-pyside6 qt6-wayland python3-pycups python3-Pillow cups hplip sane-backends sane-airscan ipp-usb avahi nss-mdns"
+    PKGS="python3-pyside6 qt6-wayland python3-pycups python3-Pillow cups cups-filters gutenprint OpenPrintingPPDs hplip sane-backends sane-airscan ipp-usb avahi nss-mdns"
     HAVE="rpm -q"
     INSTALL="zypper --non-interactive install"
 else
-    fail "Unbekannte Paketverwaltung.\nBitte von Hand installieren: PySide6, pycups, Pillow, CUPS, HPLIP, SANE, sane-airscan, ipp-usb, Avahi."
+    fail "Unbekannte Paketverwaltung.\nBitte von Hand installieren: PySide6, pycups, Pillow, CUPS, Gutenprint, HPLIP, SANE, sane-airscan, ipp-usb, Avahi."
 fi
 
 MISSING=""
@@ -158,8 +159,8 @@ mkdir -p "$(dirname "$DESKTOP_FILE")"
 cat > "$DESKTOP_FILE" << DESKTOP
 [Desktop Entry]
 Type=Application
-Name=HP Druckzentrale
-Comment=Drucken, Scannen, Tintenstand und Fax für HP-Drucker
+Name=Druckzentrale
+Comment=Drucken, Scannen, Tintenstand, Wartung und Fax für Drucker
 Exec=python3 $INSTALL_DIR/hp_druckzentrale.py
 Icon=printer
 Categories=Office;Graphics;Utility;
@@ -167,4 +168,4 @@ StartupWMClass=hp-druckzentrale
 DESKTOP
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$HOME/.local/share/applications" || true
 
-info "Installation abgeschlossen!\n\nStart über das Anwendungsmenü: HP Druckzentrale\n\nUSB-Drucker, die schon stecken: einmal ab- und wieder anstecken."
+info "Installation abgeschlossen!\n\nStart über das Anwendungsmenü: Druckzentrale\n\nUSB-Drucker, die schon stecken: einmal ab- und wieder anstecken."

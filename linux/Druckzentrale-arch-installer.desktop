@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Druckzentrale installieren (Arch)
+Comment=Lädt die neueste Version und installiert alles (Pakete, Dienste, Menüeintrag)
+Icon=system-software-install
+Exec=env HPDZ_FROM_WEB=1 bash -c "curl -fsSL -o /tmp/Druckzentrale-installieren.sh https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-installieren.sh || { kdialog --error \"Download fehlgeschlagen. Besteht eine Internetverbindung?\" || zenity --error --text=\"Download fehlgeschlagen. Besteht eine Internetverbindung?\"; exit 1; }; bash /tmp/Druckzentrale-installieren.sh"
+Terminal=false
+Categories=Utility;

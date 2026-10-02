@@ -1,55 +1,57 @@
-**Language / Sprache:** [🇬🇧 English](#hp-druckzentrale) | [🇩🇪 Deutsch](#hp-druckzentrale-1)
+**Language / Sprache:** [🇬🇧 English](#druckzentrale) | [🇩🇪 Deutsch](#druckzentrale-1)
 
 ---
 
-# HP Druckzentrale
+# Druckzentrale
 
-Print, scan, check ink levels and fax with **HP printers on Linux**, all in one window. Unofficial – not made by or affiliated with HP. Works over **USB, LAN and Wi-Fi**.
+Print, scan, check ink or toner, maintain and fax – for **printers on Linux**, in one window. Works over **USB, LAN and Wi-Fi** and with printers from any manufacturer that Linux supports. HP printers get extra functions through HPLIP (fax, printhead tools, printer reports).
 
-The app builds on the standard Linux tools: **CUPS** for printing and status, **HPLIP** (HP's own Linux software) for HP-specific devices, ink and fax, and **SANE** with **sane-airscan** and **ipp-usb** for scanning without drivers.
+Unofficial and independent – not made by or affiliated with any printer manufacturer.
+
+The app builds on the standard Linux tools: **CUPS** for printing and status, **IPP Everywhere / AirPrint** for driverless printing, **SANE** with **sane-airscan** and **ipp-usb** for scanning, free drivers (**Gutenprint**, **Foomatic**) for older printers, and **HPLIP** for HP devices.
 
 ## Installation
 
-Download the installer for your distribution from the [Releases](https://github.com/LucyWolf/hp-druckzentrale/releases/latest) page and double-click it. The first time, your file manager asks whether it may run the file.
+Download the installer for your distribution from the [Releases](https://github.com/LucyWolf/druckzentrale/releases/latest) page and double-click it. The first time, your file manager asks whether it may run the file.
 
 | Distribution | Installer |
 |---|---|
-| Arch / CachyOS / Manjaro | [`HP-Druckzentrale-arch-installer.desktop`](https://github.com/LucyWolf/hp-druckzentrale/releases/latest/download/HP-Druckzentrale-arch-installer.desktop) |
-| Debian / Ubuntu | [`HP-Druckzentrale-deb-installer.desktop`](https://github.com/LucyWolf/hp-druckzentrale/releases/latest/download/HP-Druckzentrale-deb-installer.desktop) |
-| Everything else (Fedora, openSUSE, …) | [`HP-Druckzentrale-installer.desktop`](https://github.com/LucyWolf/hp-druckzentrale/releases/latest/download/HP-Druckzentrale-installer.desktop) |
+| Arch / CachyOS / Manjaro | [`Druckzentrale-arch-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-arch-installer.desktop) |
+| Debian / Ubuntu | [`Druckzentrale-deb-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-deb-installer.desktop) |
+| Everything else (Fedora, openSUSE, …) | [`Druckzentrale-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-installer.desktop) |
 
 The installer sets up everything with a single password prompt:
 
-- packages: Qt (PySide6, native Wayland), CUPS, HPLIP, SANE, sane-airscan, ipp-usb, Avahi
+- packages: Qt (PySide6, native Wayland), CUPS, free printer drivers (Gutenprint, Foomatic), HPLIP, SANE, sane-airscan, ipp-usb, Avahi
 - turns on the printing service (CUPS) and network discovery (Avahi)
 - installs the app and adds a menu entry
 
-Running it again offers **Update** or **Uninstall**. After that, updates come through the **Update** button in the app.
+Running it again offers **Update** or **Uninstall**. After that, updates come through the app (sidebar, or *Maintenance → Check for updates*).
 
 <details>
 <summary>Prefer the terminal?</summary>
 
 ```bash
-curl -fsSL -o HP-Druckzentrale-installieren.sh https://github.com/LucyWolf/hp-druckzentrale/releases/latest/download/HP-Druckzentrale-installieren.sh
-bash HP-Druckzentrale-installieren.sh
+curl -fsSL -o Druckzentrale-installieren.sh https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-installieren.sh
+bash Druckzentrale-installieren.sh
 ```
 </details>
 
 ## Features
 
-- **Find printers** over USB and the network; the same printer found several ways is shown once
-- **Set up** with one click: newer printers driverless (IPP Everywhere), older ones through HPLIP's setup wizard
-- **Ink levels** per color, plus status like "out of paper" or "cover open"
-- **Print** several files at once: copies, pages, double-sided, color/black and white, paper size, quality – only what the printer supports
-- **Scan** from the glass or the document feeder, preview, reorder and delete pages; save as **PDF** (multi-page), **JPG, PNG, BMP, TIFF** or **WEBP**
-- **Fax** for HP printers that have it (set up once with HPLIP's wizard); send documents or scanned pages
-- Test page, printer web interface, remove queue
+- **Find printers** over USB and the network, any brand; the same printer found several ways is shown once
+- **Set up** with one click: driverless where possible, otherwise the matching installed driver is chosen automatically; a wizard guides through the first start
+- **Overview** per printer: status and messages, ink or toner levels, and what it can do (color, double-sided, scanner, fax) – the app only shows what the printer supports
+- **Print** several files at once: copies, pages, double-sided, color/black and white, paper size, quality
+- **Scan** from the glass or the document feeder (detected automatically), preview, scan area, edge detection; save as **PDF** (multi-page), **JPG, PNG, BMP, TIFF** or **WEBP**; asks before unsaved scans are discarded
+- **Maintenance:** print jobs (view, cancel), test page, cleaning and self-test where the driver offers it; for HP printers also printhead cleaning in levels, print quality diagnostics, line feed calibration and printer reports
+- **Fax** for HP printers that have it – set up from the app with one click
 
 ## Notes
 
-- Some inexpensive HP models only report rough ink levels instead of percentages.
-- Fax uses HPLIP and only appears for printers that HPLIP lists as fax-capable.
-- Some older HP models need HP's proprietary plugin (`hp-plugin`); HPLIP asks for it during setup if needed.
+- Driverless printing and scanning works for most printers from about 2015 on. Older printers need a driver; the free ones (Gutenprint, Foomatic, HPLIP) come with the installer, others only from the manufacturer.
+- Fax and printhead tools are HP-only (HPLIP).
+- Only tested with an HP OfficeJet Pro 8620 so far.
 
 ## Running from source
 
@@ -57,7 +59,7 @@ bash HP-Druckzentrale-installieren.sh
 python3 hp_druckzentrale.py
 ```
 
-Needs PySide6, pycups and Pillow; the installer pulls in everything else.
+Needs PySide6, pycups and Pillow; the installer pulls in everything else. (The file keeps its old name so that older versions can still update.)
 
 **Releases (maintainers):** raise `APP_VERSION` in `hp_druckzentrale.py` (the last digit counts up to 99), commit, push, run `tools/release.sh`.
 
@@ -65,54 +67,56 @@ License: MIT, see [LICENSE](LICENSE).
 
 ---
 
-# HP Druckzentrale
+# Druckzentrale
 
-Drucken, Scannen, Tintenstand und Fax für **HP-Drucker unter Linux**, alles in einem Fenster. Inoffiziell – nicht von HP und nicht mit HP verbunden. Funktioniert über **USB, LAN und WLAN**.
+Drucken, Scannen, Tinte oder Toner, Wartung und Fax – für **Drucker unter Linux**, in einem Fenster. Funktioniert über **USB, LAN und WLAN** und mit Druckern jedes Herstellers, den Linux unterstützt. HP-Drucker bekommen über HPLIP Zusatzfunktionen (Fax, Druckkopf-Werkzeuge, Druckerberichte).
 
-Die App baut auf den Linux-Standardwerkzeugen auf: **CUPS** für Drucken und Status, **HPLIP** (HPs eigene Linux-Software) für HP-spezifische Geräte, Tinte und Fax, und **SANE** mit **sane-airscan** und **ipp-usb** für Scannen ohne Treiber.
+Inoffiziell und unabhängig – nicht von einem Druckerhersteller und nicht mit einem verbunden.
+
+Die App baut auf den Linux-Standardwerkzeugen auf: **CUPS** für Drucken und Status, **IPP Everywhere / AirPrint** für treiberloses Drucken, **SANE** mit **sane-airscan** und **ipp-usb** fürs Scannen, freie Treiber (**Gutenprint**, **Foomatic**) für ältere Drucker und **HPLIP** für HP-Geräte.
 
 ## Installation
 
-Den Installer für deine Distribution von der [Releases](https://github.com/LucyWolf/hp-druckzentrale/releases/latest)-Seite herunterladen und doppelklicken. Beim ersten Mal fragt der Dateimanager, ob er die Datei ausführen darf.
+Den Installer für deine Distribution von der [Releases](https://github.com/LucyWolf/druckzentrale/releases/latest)-Seite herunterladen und doppelklicken. Beim ersten Mal fragt der Dateimanager, ob er die Datei ausführen darf.
 
 | Distribution | Installer |
 |---|---|
-| Arch / CachyOS / Manjaro | [`HP-Druckzentrale-arch-installer.desktop`](https://github.com/LucyWolf/hp-druckzentrale/releases/latest/download/HP-Druckzentrale-arch-installer.desktop) |
-| Debian / Ubuntu | [`HP-Druckzentrale-deb-installer.desktop`](https://github.com/LucyWolf/hp-druckzentrale/releases/latest/download/HP-Druckzentrale-deb-installer.desktop) |
-| Alle anderen (Fedora, openSUSE, …) | [`HP-Druckzentrale-installer.desktop`](https://github.com/LucyWolf/hp-druckzentrale/releases/latest/download/HP-Druckzentrale-installer.desktop) |
+| Arch / CachyOS / Manjaro | [`Druckzentrale-arch-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-arch-installer.desktop) |
+| Debian / Ubuntu | [`Druckzentrale-deb-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-deb-installer.desktop) |
+| Alle anderen (Fedora, openSUSE, …) | [`Druckzentrale-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-installer.desktop) |
 
 Der Installer richtet alles mit einer einzigen Passwortabfrage ein:
 
-- Pakete: Qt (PySide6, nativ unter Wayland), CUPS, HPLIP, SANE, sane-airscan, ipp-usb, Avahi
+- Pakete: Qt (PySide6, nativ unter Wayland), CUPS, freie Druckertreiber (Gutenprint, Foomatic), HPLIP, SANE, sane-airscan, ipp-usb, Avahi
 - schaltet den Druckdienst (CUPS) und die Netzwerksuche (Avahi) ein
 - installiert die App und legt einen Menüeintrag an
 
-Erneut gestartet bietet er **Aktualisieren** oder **Deinstallieren** an. Danach kommen Updates über den **Update**-Knopf in der App.
+Erneut gestartet bietet er **Aktualisieren** oder **Deinstallieren** an. Danach kommen Updates über die App (Seitenleiste oder *Wartung → Nach Updates suchen*).
 
 <details>
 <summary>Lieber per Terminal?</summary>
 
 ```bash
-curl -fsSL -o HP-Druckzentrale-installieren.sh https://github.com/LucyWolf/hp-druckzentrale/releases/latest/download/HP-Druckzentrale-installieren.sh
-bash HP-Druckzentrale-installieren.sh
+curl -fsSL -o Druckzentrale-installieren.sh https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-installieren.sh
+bash Druckzentrale-installieren.sh
 ```
 </details>
 
 ## Funktionen
 
-- **Drucker finden** über USB und Netzwerk; derselbe Drucker auf mehreren Wegen erscheint nur einmal
-- **Einrichten** mit einem Klick: neuere Drucker treiberlos (IPP Everywhere), ältere über den HPLIP-Assistenten
-- **Tintenstand** je Farbe, dazu Meldungen wie „Papier leer“ oder „Deckel offen“
-- **Drucken** mehrerer Dateien auf einmal: Kopien, Seiten, beidseitig, Farbe/Schwarzweiß, Papierformat, Qualität – nur was der Drucker kann
-- **Scannen** von der Glasscheibe oder aus dem Einzug, Vorschau, Seiten sortieren und löschen; speichern als **PDF** (mehrseitig), **JPG, PNG, BMP, TIFF** oder **WEBP**
-- **Fax** bei HP-Druckern, die es können (einmalig über den HPLIP-Assistenten einrichten); Dokumente oder gescannte Seiten senden
-- Testseite, Weboberfläche des Druckers, Warteschlange entfernen
+- **Drucker finden** über USB und Netzwerk, jede Marke; derselbe Drucker auf mehreren Wegen erscheint nur einmal
+- **Einrichten** mit einem Klick: treiberlos, wo es geht, sonst wählt die App den passenden installierten Treiber; beim ersten Start führt ein Assistent durch
+- **Übersicht** je Drucker: Status und Meldungen, Tinte oder Toner, und was er kann (Farbe, beidseitig, Scanner, Fax) – die App zeigt nur, was der Drucker unterstützt
+- **Drucken** mehrerer Dateien auf einmal: Kopien, Seiten, beidseitig, Farbe/Schwarzweiß, Papierformat, Qualität
+- **Scannen** von der Glasscheibe oder aus dem Vorlageneinzug (wird erkannt), Vorschau, Scanbereich, Kanten erkennen; speichern als **PDF** (mehrseitig), **JPG, PNG, BMP, TIFF** oder **WEBP**; fragt nach, bevor ungespeicherte Scans verloren gehen
+- **Wartung:** Druckaufträge (ansehen, abbrechen), Testseite, Reinigung und Selbsttest, wo der Treiber es anbietet; bei HP-Druckern zusätzlich Druckkopfreinigung in Stufen, Druckqualitäts-Diagnose, Zeilenvorschub-Kalibrierung und Druckerberichte
+- **Fax** bei HP-Druckern, die es können – aus der App mit einem Klick eingerichtet
 
 ## Hinweise
 
-- Manche günstige HP-Modelle melden nur grobe Tintenstufen statt Prozent.
-- Fax läuft über HPLIP und erscheint nur bei Druckern, die HPLIP als faxfähig kennt.
-- Einige ältere HP-Modelle brauchen das unfreie HP-Plugin (`hp-plugin`); HPLIP fragt beim Einrichten danach, falls nötig.
+- Treiberlos drucken und scannen klappt bei den meisten Druckern ab etwa 2015. Ältere brauchen einen Treiber; die freien (Gutenprint, Foomatic, HPLIP) bringt der Installer mit, andere gibt es nur beim Hersteller.
+- Fax und Druckkopf-Werkzeuge gibt es nur für HP (HPLIP).
+- Bisher nur mit einem HP OfficeJet Pro 8620 getestet.
 
 ## Aus dem Quellcode starten
 
@@ -120,7 +124,7 @@ bash HP-Druckzentrale-installieren.sh
 python3 hp_druckzentrale.py
 ```
 
-Braucht PySide6, pycups und Pillow; alles andere holt der Installer.
+Braucht PySide6, pycups und Pillow; alles andere holt der Installer. (Die Datei behält ihren alten Namen, damit ältere Fassungen sich weiter aktualisieren können.)
 
 **Releases (für Betreuer):** `APP_VERSION` in `hp_druckzentrale.py` erhöhen (die letzte Stelle zählt bis 99), committen, pushen, `tools/release.sh` ausführen.
 
