@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.25"
+APP_VERSION = "1.0.26"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -2533,6 +2533,8 @@ class MainWindow(QtWidgets.QMainWindow):
         def done(ok, opts):
             if dev != self.scanner_combo.currentData():
                 return
+            for c in (self.scan_mode, self.scan_res, self.scan_source):
+                c.clear()   # kann zweimal laufen (gemerkt, dann frisch) – nichts doppelt eintragen
             opts = opts if ok else {}
             names = {"Color": "Farbe", "Gray": "Graustufen", "Lineart": "Schwarzweiß", "Flatbed": "Scannerglas",
                      "ADF": "Vorlageneinzug"}
