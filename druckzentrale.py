@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.15"
+APP_VERSION = "1.0.16"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 INSTALL_DIR = os.path.expanduser("~/.local/share/druckzentrale")
@@ -1929,7 +1929,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fit.setChecked(True)
         form.addRow("Kopien", self.copies)
         form.addRow("Seiten", self.pages_edit)
-        form.addRow("Beidseitig", self.sides)
+        form.addRow("Seiten bedrucken", self.sides)
         form.addRow("Farbe", self.color)
         form.addRow("Papier", self.media)
         form.addRow("Qualität", self.quality)
@@ -1952,8 +1952,9 @@ class MainWindow(QtWidgets.QMainWindow):
             i = combo.findData(keep if keep is not None else current)
             combo.setCurrentIndex(max(0, i))
         sides = sup.get("sides-supported") or ["one-sided", "two-sided-long-edge", "two-sided-short-edge"]
-        fill(self.sides, [(lbl, v) for v, lbl in (("one-sided", "Nein"), ("two-sided-long-edge", "Ja, lange Kante"),
-                                                    ("two-sided-short-edge", "Ja, kurze Kante")) if v in sides],
+        # Nur einseitig/beidseitig; beidseitig = umblaettern wie ein Buch (lange Kante)
+        fill(self.sides, [(lbl, v) for v, lbl in (("one-sided", "Einseitig"), ("two-sided-long-edge", "Beidseitig"))
+                          if v in sides],
              "two-sided-long-edge")   # beidseitig als Standard, wo der Drucker es kann
         modes = sup.get("print-color-mode-supported") or ["color", "monochrome"]
         fill(self.color, [(lbl, v) for v, lbl in (("color", "Farbe"), ("monochrome", "Schwarzweiß")) if v in modes])
