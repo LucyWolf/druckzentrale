@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.27"
+APP_VERSION = "1.0.28"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -2244,7 +2244,7 @@ class MainWindow(QtWidgets.QMainWindow):
         left = QtWidgets.QVBoxLayout()
         self.scan_area_stack = QtWidgets.QStackedWidget()
         hint = QtWidgets.QLabel('Lege dein Dokument in den Scanner und wähle <b>Scannen</b> oder '
-                                '<a href="import">importiere</a> eine Datei.')
+                                f'<a href="import" style="color:{ACCENT};">importiere</a> eine Datei.')
         hint.setAlignment(QtCore.Qt.AlignCenter)
         hint.setWordWrap(True)
         hint.setStyleSheet("font-size: 17px;")

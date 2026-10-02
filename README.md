@@ -4,11 +4,11 @@
 
 # Druckzentrale
 
-Print, scan, check ink or toner, maintain and fax – for **printers on Linux**, in one window. Works over **USB, LAN and Wi-Fi** and with printers from any manufacturer that Linux supports. HP printers get extra functions through HPLIP (fax, printhead tools, printer reports).
+Print, scan, check ink or toner, maintain and fax – for **printers on Linux**, in one simple window. Works over **USB, LAN and Wi-Fi** and with printers from any manufacturer that Linux supports. HP printers get extra functions through HPLIP (fax, printhead cleaning, printer reports).
 
-Unofficial and independent – not made by or affiliated with any printer manufacturer.
+Unofficial and independent – not made by or affiliated with any printer manufacturer. The interface is in German.
 
-The app builds on the standard Linux tools: **CUPS** for printing and status, **IPP Everywhere / AirPrint** for driverless printing, **SANE** with **sane-airscan** and **ipp-usb** for scanning, free drivers (**Gutenprint**, **Foomatic**) for older printers, and **HPLIP** for HP devices.
+![Overview](docs/overview.png)
 
 ## Installation
 
@@ -20,13 +20,7 @@ Download the installer for your distribution from the [Releases](https://github.
 | Debian / Ubuntu | [`Druckzentrale-deb-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-deb-installer.desktop) |
 | Everything else (Fedora, openSUSE, …) | [`Druckzentrale-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-installer.desktop) |
 
-The installer sets up everything with a single password prompt:
-
-- packages: Qt (PySide6, native Wayland), CUPS, free printer drivers (Gutenprint, Foomatic), HPLIP, SANE, sane-airscan, ipp-usb, Avahi
-- turns on the printing service (CUPS) and network discovery (Avahi)
-- installs the app and adds a menu entry
-
-Running it again offers **Update** or **Uninstall**. After that, updates come through the app (*Version · Info* at the bottom left).
+The installer sets up everything with a single password prompt: Qt (PySide6, native Wayland), CUPS, free printer drivers (Gutenprint, Foomatic), HPLIP, SANE with sane-airscan, ipp-usb and Avahi. It turns on the printing service and network discovery, installs the app and adds a menu entry. Running it again offers **Update** or **Uninstall**.
 
 <details>
 <summary>Prefer the terminal?</summary>
@@ -37,21 +31,33 @@ bash Druckzentrale-installieren.sh
 ```
 </details>
 
-## Features
+### Updates
 
-- **Find printers** over USB and the network, any brand; the same printer found several ways is shown once
-- **Set up** with one click: driverless where possible, otherwise the matching installed driver is chosen automatically; a wizard guides through the first start
-- **Overview** per printer: status and messages, ink or toner levels; scan and fax only appear if the printer has them
-- **Print** several files at once: copies, pages, double-sided, color/black and white, paper size, quality
-- **Scan** from the glass or the document feeder (detected automatically), preview, scan area, edge detection; save as **PDF** (multi-page), **JPG, PNG, BMP, TIFF** or **WEBP**; asks before unsaved scans are discarded
-- **Maintenance:** print jobs (view, cancel), test page, cleaning and self-test where the driver offers it; for HP printers also printhead cleaning in levels, print quality diagnostics, line feed calibration and printer reports
-- **Fax** for HP printers that have it – set up from the app with one click
+Click **Version · Info** at the bottom left, then **Check for updates**. If a new version exists, a button also appears at the bottom left on its own. Installations of the former *HP Druckzentrale* move themselves over on the first start (program, menu entry, settings).
 
-## Notes
+## Getting started
 
-- Driverless printing and scanning works for most printers from about 2015 on. Older printers need a driver; the free ones (Gutenprint, Foomatic, HPLIP) come with the installer, others only from the manufacturer.
-- Fax and printhead tools are HP-only (HPLIP).
-- Only tested with an HP OfficeJet Pro 8620 so far.
+On the first start a wizard guides you: switch on the printer, connect it by USB or to the same network, **search**, **set up** (one password prompt) and give it a name – leave it empty to use the device name. A test page can be printed right away. More printers can be added later with **Add** in the sidebar.
+
+## Using it
+
+The sidebar lists your printers; the dot shows the state (green ready, orange message, grey not set up). The **overview** shows status, messages and ink or toner. The tiles lead to the functions, **← Overview** goes back. *Scan* and *Fax* only appear if the printer has them.
+
+- **Print:** several files at once; copies, pages, color or black and white, paper size (only what the printer offers, e.g. A4, photo 10×15, envelopes, borderless), quality. *Print double-sided* is ticked by default if the printer can do it.
+- **Scan:** source *document feeder* or *scanner glass* – the app notices paper in the feeder and switches by itself. Color by default; *Document* scans at 300 dpi, *Photo* at 600 dpi. Resolution and scan area only offer what the chosen source supports. Preview, edge detection, import of existing images, reorder pages; save as **PDF** (multi-page), **JPG, PNG, BMP, TIFF** or **WEBP**. Unsaved scans are not lost by accident – the app asks first.
+- **Fax** (HP printers with fax): set up once with one click, then number, documents or scanned pages and *Send*. A phone line must be connected to the printer.
+- **Maintenance:** print jobs (view, cancel), test page, printer web interface, rename the printer, setup wizard, remove the printer. For HP printers additionally:
+  - **Clean printhead** – starts with level 1; when the printer is done the app asks whether the print looks fine and only then goes to the next, more thorough level
+  - print quality diagnostics, line feed calibration
+  - reports: printer status, diagnostics, network/Wi-Fi, usage, fax logs
+
+![Scan](docs/scan.png)
+
+## Tested printers
+
+- HP OfficeJet Pro 8620
+
+Other printers should work through the standards (IPP Everywhere/AirPrint for printing, eSCL for scanning) but have not been tried yet. Older printers without these standards need a driver; the free ones come with the installer, others only from the manufacturer. Fax and printhead tools are HP-only.
 
 ## Running from source
 
@@ -69,11 +75,11 @@ License: MIT, see [LICENSE](LICENSE).
 
 # Druckzentrale
 
-Drucken, Scannen, Tinte oder Toner, Wartung und Fax – für **Drucker unter Linux**, in einem Fenster. Funktioniert über **USB, LAN und WLAN** und mit Druckern jedes Herstellers, den Linux unterstützt. HP-Drucker bekommen über HPLIP Zusatzfunktionen (Fax, Druckkopf-Werkzeuge, Druckerberichte).
+Drucken, Scannen, Tinte oder Toner, Wartung und Fax – für **Drucker unter Linux**, in einem einfachen Fenster. Funktioniert über **USB, LAN und WLAN** und mit Druckern jedes Herstellers, den Linux unterstützt. HP-Drucker bekommen über HPLIP Zusatzfunktionen (Fax, Druckkopfreinigung, Druckerberichte).
 
 Inoffiziell und unabhängig – nicht von einem Druckerhersteller und nicht mit einem verbunden.
 
-Die App baut auf den Linux-Standardwerkzeugen auf: **CUPS** für Drucken und Status, **IPP Everywhere / AirPrint** für treiberloses Drucken, **SANE** mit **sane-airscan** und **ipp-usb** fürs Scannen, freie Treiber (**Gutenprint**, **Foomatic**) für ältere Drucker und **HPLIP** für HP-Geräte.
+![Übersicht](docs/overview.png)
 
 ## Installation
 
@@ -85,13 +91,7 @@ Den Installer für deine Distribution von der [Releases](https://github.com/Lucy
 | Debian / Ubuntu | [`Druckzentrale-deb-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-deb-installer.desktop) |
 | Alle anderen (Fedora, openSUSE, …) | [`Druckzentrale-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-installer.desktop) |
 
-Der Installer richtet alles mit einer einzigen Passwortabfrage ein:
-
-- Pakete: Qt (PySide6, nativ unter Wayland), CUPS, freie Druckertreiber (Gutenprint, Foomatic), HPLIP, SANE, sane-airscan, ipp-usb, Avahi
-- schaltet den Druckdienst (CUPS) und die Netzwerksuche (Avahi) ein
-- installiert die App und legt einen Menüeintrag an
-
-Erneut gestartet bietet er **Aktualisieren** oder **Deinstallieren** an. Danach kommen Updates über die App (*Version · Info* links unten).
+Der Installer richtet alles mit einer einzigen Passwortabfrage ein: Qt (PySide6, nativ unter Wayland), CUPS, freie Druckertreiber (Gutenprint, Foomatic), HPLIP, SANE mit sane-airscan, ipp-usb und Avahi. Er schaltet Druckdienst und Netzwerksuche ein, installiert die App und legt einen Menüeintrag an. Erneut gestartet bietet er **Aktualisieren** oder **Deinstallieren** an.
 
 <details>
 <summary>Lieber per Terminal?</summary>
@@ -102,21 +102,33 @@ bash Druckzentrale-installieren.sh
 ```
 </details>
 
-## Funktionen
+### Updates
 
-- **Drucker finden** über USB und Netzwerk, jede Marke; derselbe Drucker auf mehreren Wegen erscheint nur einmal
-- **Einrichten** mit einem Klick: treiberlos, wo es geht, sonst wählt die App den passenden installierten Treiber; beim ersten Start führt ein Assistent durch
-- **Übersicht** je Drucker: Status und Meldungen, Tinte oder Toner; Scannen und Fax erscheinen nur, wenn der Drucker sie hat
-- **Drucken** mehrerer Dateien auf einmal: Kopien, Seiten, beidseitig, Farbe/Schwarzweiß, Papierformat, Qualität
-- **Scannen** von der Glasscheibe oder aus dem Vorlageneinzug (wird erkannt), Vorschau, Scanbereich, Kanten erkennen; speichern als **PDF** (mehrseitig), **JPG, PNG, BMP, TIFF** oder **WEBP**; fragt nach, bevor ungespeicherte Scans verloren gehen
-- **Wartung:** Druckaufträge (ansehen, abbrechen), Testseite, Reinigung und Selbsttest, wo der Treiber es anbietet; bei HP-Druckern zusätzlich Druckkopfreinigung in Stufen, Druckqualitäts-Diagnose, Zeilenvorschub-Kalibrierung und Druckerberichte
-- **Fax** bei HP-Druckern, die es können – aus der App mit einem Klick eingerichtet
+Links unten auf **Version · Info** klicken, dann **Nach Updates suchen**. Gibt es eine neue Version, erscheint links unten auch von selbst ein Knopf dafür. Installationen der früheren *HP Druckzentrale* ziehen beim ersten Start selbst um (Programm, Menüeintrag, Einstellungen).
 
-## Hinweise
+## Erste Schritte
 
-- Treiberlos drucken und scannen klappt bei den meisten Druckern ab etwa 2015. Ältere brauchen einen Treiber; die freien (Gutenprint, Foomatic, HPLIP) bringt der Installer mit, andere gibt es nur beim Hersteller.
-- Fax und Druckkopf-Werkzeuge gibt es nur für HP (HPLIP).
-- Bisher nur mit einem HP OfficeJet Pro 8620 getestet.
+Beim ersten Start führt ein Assistent durch: Drucker einschalten, per USB oder ins selbe Netz bringen, **suchen**, **einrichten** (eine Passwortabfrage) und einen Namen geben – leer lassen nimmt den Gerätenamen. Danach lässt sich gleich eine Testseite drucken. Weitere Drucker kommen später über **Hinzufügen** in der Seitenleiste dazu.
+
+## Bedienung
+
+Die Seitenleiste zeigt deine Drucker; der Punkt zeigt den Zustand (grün bereit, orange Meldung, grau nicht eingerichtet). Die **Übersicht** zeigt Status, Meldungen und Tinte oder Toner. Die Kacheln führen zu den Funktionen, **← Übersicht** zurück. *Scannen* und *Fax* erscheinen nur, wenn der Drucker sie hat.
+
+- **Drucken:** mehrere Dateien auf einmal; Kopien, Seiten, Farbe oder Schwarzweiß, Papierformat (nur was der Drucker anbietet, z. B. A4, Foto 10×15, Umschläge, randlos), Qualität. *Beidseitig drucken* ist angehakt, wenn der Drucker es kann.
+- **Scannen:** Quelle *Vorlageneinzug* oder *Scannerglas* – die App merkt, wenn Papier im Einzug liegt, und schaltet selbst um. Standard ist Farbe; *Dokument* scannt mit 300 dpi, *Foto* mit 600 dpi. Auflösung und Scanbereich bieten nur an, was die gewählte Quelle kann. Vorschau, Kanten erkennen, vorhandene Bilder importieren, Seiten sortieren; speichern als **PDF** (mehrseitig), **JPG, PNG, BMP, TIFF** oder **WEBP**. Ungespeicherte Scans gehen nicht versehentlich verloren – die App fragt vorher.
+- **Fax** (HP-Drucker mit Fax): einmal mit einem Klick einrichten, dann Nummer, Dokumente oder gescannte Seiten und *Senden*. Am Drucker muss eine Telefonleitung angeschlossen sein.
+- **Wartung:** Druckaufträge (ansehen, abbrechen), Testseite, Weboberfläche des Druckers, Drucker umbenennen, Einrichtungs-Assistent, Drucker entfernen. Bei HP-Druckern zusätzlich:
+  - **Druckkopf reinigen** – beginnt mit Stufe 1; ist der Drucker fertig, fragt die App, ob das Druckbild in Ordnung ist, und geht erst dann zur nächsten, gründlicheren Stufe
+  - Druckqualitäts-Diagnose, Zeilenvorschub kalibrieren
+  - Berichte: Druckerstatus, Diagnose, Netzwerk/WLAN, Nutzung, Faxprotokolle
+
+![Scannen](docs/scan.png)
+
+## Getestete Drucker
+
+- HP OfficeJet Pro 8620
+
+Andere Drucker sollten über die Standards (IPP Everywhere/AirPrint zum Drucken, eSCL zum Scannen) funktionieren, sind aber noch nicht ausprobiert. Ältere Drucker ohne diese Standards brauchen einen Treiber; die freien bringt der Installer mit, andere gibt es nur beim Hersteller. Fax und Druckkopf-Werkzeuge gibt es nur für HP.
 
 ## Aus dem Quellcode starten
 
