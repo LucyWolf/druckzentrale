@@ -26,7 +26,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "HP Druckzentrale"
-APP_VERSION = "1.0.5"
+APP_VERSION = "1.0.6"
 UPDATE_REPO = "LucyWolf/hp-druckzentrale"
 INSTALL_DIR = os.path.expanduser("~/.local/share/hp-druckzentrale")
 HPLIP_DIR = "/usr/share/hplip"
@@ -530,6 +530,27 @@ def scan(dev, mode, res, source, area=None, crop=False):
         for f in files:
             autocrop(f)
     return files
+
+
+def adf_loaded(ip):
+    """eSCL: liegt Papier im Vorlageneinzug? True/False, None wenn unbekannt."""
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    for url in (f"https://{ip}/eSCL/ScannerStatus", f"http://{ip}/eSCL/ScannerStatus"):
+        try:
+            with urllib.request.urlopen(url, timeout=4, context=ctx if url.startswith("https") else None) as r:
+                m = re.search(rb"<scan:AdfState>(\w+)</scan:AdfState>", r.read())
+            return None if not m else m.group(1) == b"ScannerAdfLoaded"
+        except Exception:
+            continue
+    return None
+
+
+def scanner_ip(dev, desc):
+    m = re.search(r"ip=([\d.]+)", desc or "") or re.search(r"ip=([\d.]+)", dev or "")
+    return m.group(1) if m else None
 
 
 SAVE_FORMATS = [("PDF", "pdf"), ("JPG", "jpg"), ("PNG", "png"), ("BMP", "bmp"), ("TIFF", "tiff"), ("WEBP", "webp")]
@@ -1095,6 +1116,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.refresh_status)
         self.timer.start(30000)
+        self.adf_timer = QtCore.QTimer(self)
+        self.adf_timer.timeout.connect(self.poll_adf)
+        self.adf_timer.start(3000)
 
     # ----- Rahmen -----
     def build_topbar(self):
@@ -1805,6 +1829,10 @@ class MainWindow(QtWidgets.QMainWindow):
         rl.addWidget(self.scanner_field)
         self.scan_source = QtWidgets.QComboBox()
         rl.addWidget(self.field("Quelle", self.scan_source))
+        self.scan_duplex = QtWidgets.QCheckBox("Beidseitig")
+        self.scan_duplex.hide()
+        rl.addWidget(self.scan_duplex)
+        self.scan_source.currentIndexChanged.connect(self.source_changed)
         self.scan_crop = QtWidgets.QCheckBox("Kanten erkennen")
         rl.addWidget(self.scan_crop)
         self.scan_preset = QtWidgets.QComboBox()
@@ -1846,9 +1874,41 @@ class MainWindow(QtWidgets.QMainWindow):
             if i >= 0:
                 combo.setCurrentIndex(i)
 
+    def is_feeder(self, src):
+        return bool(src) and bool(re.search(r"adf|feeder", src, re.I))
+
+    def source_changed(self):
+        self.scan_duplex.setVisible(self.is_feeder(self.scan_source.currentData())
+                                    and bool(getattr(self, "duplex_value", None)))
+
+    def poll_adf(self):
+        """Papier im Einzug -> Vorlageneinzug waehlen, Einzug leer -> Scannerglas (nur bei Aenderung)."""
+        if self.stack.currentIndex() != self.SCAN or not self.scan_btn.isEnabled():
+            return
+        i = self.scanner_combo.currentIndex()
+        dev = self.scanner_combo.currentData()
+        ip = scanner_ip(dev, self.scanners[i][1] if 0 <= i < len(self.scanners) else "") or \
+            (self.current.host if self.current else None)
+        if not dev or not ip:
+            return
+
+        def done(ok, loaded):
+            if not ok or loaded is None or loaded == getattr(self, "adf_state", None):
+                return
+            self.adf_state = loaded
+            want = next((self.scan_source.itemData(j) for j in range(self.scan_source.count())
+                         if self.is_feeder(self.scan_source.itemData(j)) == loaded), None)
+            if want is not None:
+                self.scan_source.setCurrentIndex(self.scan_source.findData(want))
+                self.status.showMessage("Papier im Vorlageneinzug erkannt." if loaded else "Vorlageneinzug leer – Scannerglas.")
+        bg(lambda: adf_loaded(ip), done)
+
     def scan_args(self):
+        src = self.scan_source.currentData()
+        if self.is_feeder(src) and self.scan_duplex.isChecked() and getattr(self, "duplex_value", None):
+            src = self.duplex_value
         return (self.scanner_combo.currentData(), self.scan_mode.currentData(), self.scan_res.currentData(),
-                self.scan_source.currentData(), self.scan_area.currentData(), self.scan_crop.isChecked())
+                src, self.scan_area.currentData(), self.scan_crop.isChecked())
 
     def do_preview(self):
         dev, mode, res, src, area, crop = self.scan_args()
@@ -1940,7 +2000,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
             opts = opts if ok else {}
             names = {"Color": "Farbe", "Gray": "Graustufen", "Lineart": "Schwarzweiß", "Flatbed": "Scannerglas",
-                     "ADF": "Einzug", "ADF Duplex": "Einzug beidseitig"}
+                     "ADF": "Vorlageneinzug"}
+            # wie HP Smart: nur Vorlageneinzug und Scannerglas; beidseitig ist ein Haken beim Einzug
+            if "source" in opts:
+                srcs, cur = opts["source"]
+                self.duplex_value = next((x for x in srcs if re.search(r"duplex", x, re.I)), None)
+                srcs = [x for x in srcs if not re.search(r"duplex", x, re.I)]
+                srcs.sort(key=lambda x: not re.search(r"adf|feeder", x, re.I))
+                opts["source"] = (srcs, cur if cur in srcs else (srcs[0] if srcs else ""))
             for key, combo, fallback in (("mode", self.scan_mode, ["Color", "Gray"]),
                                          ("resolution", self.scan_res, ["150", "300", "600"]),
                                          ("source", self.scan_source, [])):
@@ -1951,6 +2018,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 combo.setCurrentIndex(max(0, i))
             self.scan_source.setEnabled(self.scan_source.count() > 1)
             self.apply_preset()
+            self.adf_state = None
+            self.source_changed()
         bg(lambda: scanner_options(dev), done)
 
     def do_scan(self):
