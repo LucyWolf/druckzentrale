@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.19"
+APP_VERSION = "1.0.20"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -625,22 +625,20 @@ def pretty_media(name):
                  "Postcard": ("Postkarte", 100, 148)}
         base = next((k for k in known if k.lower() == base.lower()), base)
         if base in known:
-            nice, wm, hm = known[base]
-            return f"{nice} randlos ({wm} × {hm} mm)", (5, nice)
+            nice = known[base][0]
+            return f"{nice} randlos", (5, nice)
         return f"{base} randlos", (6, base)
     m = re.match(r"([a-z]+)_(.+)_([\d.]+)x([\d.]+)(mm|in)$", name)
     if not m:
         return name, (9, name)
-    region, label, w, h, unit = m.groups()
-    f = 25.4 if unit == "in" else 1.0
-    wm, hm = round(float(w) * f), round(float(h) * f)
+    region, label = m.group(1), m.group(2)
     nice = MEDIA_NAMES.get(label) or (label.upper() if region == "iso" or re.fullmatch(r"[ab]\d+", label) else
                                       label.replace("-", " ").title())
     if region == "jis":
         nice += " (JIS)"
     group = 0 if name == "iso_a4_210x297mm" else 1 if region == "iso" and not nice.startswith("Umschlag") else \
         2 if nice.startswith("Foto") else 4 if nice.startswith("Umschlag") else 3
-    return f"{nice} ({wm} × {hm} mm)", (group, nice)
+    return nice, (group, nice)
 
 
 SCAN_AREAS = [("Gesamter Scanbereich", None), ("A4", (210, 297)), ("A5", (148, 210)), ("Letter", (215.9, 279.4)), ("Legal", (215.9, 355.6)),
@@ -2088,7 +2086,11 @@ class MainWindow(QtWidgets.QMainWindow):
         media = sup.get("media-supported") or ["iso_a4_210x297mm", "iso_a5_148x210mm", "na_letter_8.5x11in", "na_index-4x6_4x6in"]
         named = [(pretty_media(m), m) for m in media if not m.startswith("custom_")]
         named.sort(key=lambda x: x[0][1])
-        items = [(label, m) for (label, _), m in named]
+        items, seen = [], set()
+        for (label, _), m in named:
+            if label not in seen:   # gleich benannte Varianten (z. B. zwei „Foto 10×15“) nur einmal
+                seen.add(label)
+                items.append((label, m))
         fill(self.media, items, "iso_a4_210x297mm")
         qual = [str(q) for q in (sup.get("print-quality-supported") or [3, 4, 5])]
         fill(self.quality, [(lbl, v) for v, lbl in (("4", "Normal"), ("3", "Entwurf"), ("5", "Hoch")) if v in qual], "4")
