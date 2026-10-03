@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.28"
+APP_VERSION = "1.0.30"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -327,18 +327,29 @@ STATUS_ATTRS = ["printer-state", "printer-state-reasons", "printer-state-message
 def query_status(p):
     """Status und Tinte: erst ueber IPP (CUPS), sonst ueber HPLIP."""
     res = {"state": "", "reasons": [], "message": "", "markers": [], "supported": {}}
-    attrs = None
-    if cups is not None:
-        conn = cups.Connection()
+    attrs = queue_attrs = None
+    # Netzwerkdrucker (IP oder Name wie HP….local); ein ausgeschalteter laesst sich nicht verbinden
+    net = bool(p.host) and p.host not in ("localhost", "127.0.0.1") and p.connection != "USB"
+    if cups is not None and p.queue:
         try:
-            if p.queue:
-                attrs = conn.getPrinterAttributes(p.queue, requested_attributes=STATUS_ATTRS)
-            elif re.fullmatch(r"[\d.]+", p.host or ""):
-                # pycups fragt sonst den lokalen CUPS-Dienst; der Drucker ist selbst ein IPP-Server
-                attrs = cups.Connection(host=p.host, port=631).getPrinterAttributes(
-                    uri=f"ipp://{p.host}:631/ipp/print", requested_attributes=STATUS_ATTRS)
-        except (cups.IPPError, RuntimeError):   # RuntimeError: Drucker gerade nicht erreichbar
-            attrs = None
+            queue_attrs = cups.Connection().getPrinterAttributes(p.queue, requested_attributes=STATUS_ATTRS)
+        except (cups.IPPError, RuntimeError):
+            queue_attrs = None
+    if net:
+        # Zustand beim Geraet selbst erfragen: CUPS meldet „Bereit“, auch wenn der Drucker aus ist
+        import socket
+        try:
+            socket.create_connection((p.host, 631), timeout=2).close()
+            attrs = cups.Connection(host=p.host, port=631).getPrinterAttributes(
+                uri=f"ipp://{p.host}:631/ipp/print", requested_attributes=STATUS_ATTRS) if cups else None
+        except Exception:   # Verbindung abgelehnt, Zeitueberschreitung oder IPP-Fehler
+            res.update(state="Nicht erreichbar", reasons=["offline"])
+            if queue_attrs:
+                for key in ("sides-supported", "print-color-mode-supported", "media-supported", "print-quality-supported"):
+                    res["supported"][key] = _list(queue_attrs.get(key))
+            return res
+    else:
+        attrs = queue_attrs
     if attrs:
         state = {3: "Bereit", 4: "Druckt", 5: "Angehalten"}.get(attrs.get("printer-state"), "")
         res["state"] = state
@@ -349,8 +360,9 @@ def query_status(p):
         for i, name in enumerate(names):
             res["markers"].append({"name": name, "level": levels[i] if i < len(levels) else -1,
                                    "color": colors[i] if i < len(colors) else ""})
+        # Druckoptionen aus der Warteschlange (dort stehen die, mit denen CUPS druckt)
         for key in ("sides-supported", "print-color-mode-supported", "media-supported", "print-quality-supported"):
-            res["supported"][key] = _list(attrs.get(key))
+            res["supported"][key] = _list((queue_attrs or attrs).get(key))
     # CUPS kennt die Tinte einer Warteschlange oft erst nach dem ersten Auftrag: dann den Drucker direkt fragen
     if not res["markers"] and cups is not None and re.fullmatch(r"[\d.]+", p.host or ""):
         try:
@@ -387,7 +399,7 @@ REASONS_DE = {
     "media-empty": "Papier leer", "media-jam": "Papierstau", "media-needed": "Papier einlegen",
     "door-open": "Klappe offen", "cover-open": "Deckel offen", "marker-supply-low": "Tinte fast leer",
     "marker-supply-empty": "Tinte leer", "toner-low": "Toner fast leer", "toner-empty": "Toner leer",
-    "offline": "Offline", "paused": "Angehalten", "connecting-to-device": "Verbindet…",
+    "offline": "Drucker ist ausgeschaltet oder nicht im Netz", "paused": "Angehalten", "connecting-to-device": "Verbindet…",
     "input-tray-missing": "Papierfach fehlt", "output-area-full": "Ausgabefach voll",
 }
 
@@ -1132,7 +1144,9 @@ def printer_key(p):
 def real_name(p):
     """Echter Geraetename, z. B. „HP Officejet Pro 8620“ (ohne Treiberzusatz wie „- IPP Everywhere“)."""
     name = re.sub(r"\s+-\s+.*$", "", p.model or "").strip() or (p.info or p.queue or "Drucker").replace("_", " ")
-    if (is_hp(" ".join(p.uris)) or is_hp(p.info)) and not re.match(r"(hp|hewlett)", name, re.I):
+    hp_hint = is_hp(" ".join(p.uris)) or is_hp(p.info) or \
+        any(re.match(r"hp[_ -]|hp[0-9a-f]{12}", x or "", re.I) for x in (p.queue, p.host))   # HP_…, HP6CC2….local
+    if hp_hint and not re.match(r"(hp|hewlett)", name, re.I):
         name = "HP " + name
     return name
 
@@ -1378,7 +1392,8 @@ class MainWindow(QtWidgets.QMainWindow):
         m = QtWidgets.QLabel(model)
         m.setObjectName("accent")
         m.setStyleSheet("font-size: 16px;")
-        col.addWidget(m)
+        if norm(model) != norm(self.nickname(p)):   # nicht zweimal dasselbe
+            col.addWidget(m)
         col.addSpacing(10)
         chips = QtWidgets.QHBoxLayout()
         self.ov_state = QtWidgets.QLabel("Status wird abgefragt …")
@@ -1464,7 +1479,8 @@ class MainWindow(QtWidgets.QMainWindow):
             for mk in markers:
                 self.ov_ink.addWidget(InkBar(mk))
             if not markers:
-                lab = QtWidgets.QLabel("Der Drucker meldet keinen Füllstand." if (self.current and (self.current.queue or self.current.host))
+                lab = QtWidgets.QLabel("Füllstände gibt es wieder, wenn der Drucker an ist." if "offline" in res.get("reasons", [])
+                                       else "Der Drucker meldet keinen Füllstand." if (self.current and (self.current.queue or self.current.host))
                                        else "Füllstände gibt es nach dem Einrichten.")
                 lab.setObjectName("dim")
                 self.ov_ink.addWidget(lab)
@@ -1795,9 +1811,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.status.showMessage(f"Suche fehlgeschlagen: {res}")
                 return
             if res:
-                for p in res:   # bekannte Faehigkeiten nicht neu abfragen
-                    known = next((q for q in self.printers if printer_key(q) == printer_key(p)), None)
-                    if known is not None and p.caps is None:
+                for p in res:
+                    # Bekanntes behalten: ist der Drucker aus, findet die Suche nur die Warteschlange
+                    # (ohne IP, ohne HPLIP-Adresse) – dann fehlten Name, Fax und Statusabfrage
+                    known = next((q for q in self.printers if printer_key(q) == printer_key(p)
+                                  or (p.queue and q.queue == p.queue)), None)
+                    if known is None:
+                        continue
+                    p.uris += [u for u in known.uris if u not in p.uris]
+                    if re.fullmatch(r"[\d.]+", known.host or "") and not re.fullmatch(r"[\d.]+", p.host or ""):
+                        p.host = known.host
+                    p.model = p.model or known.model
+                    p.fax_queue = p.fax_queue or known.fax_queue
+                    if p.caps is None:
                         p.caps = known.caps
                 self.settings.setValue("printers_cache", json.dumps([p.to_dict() for p in res]))
             elif self.printers:
