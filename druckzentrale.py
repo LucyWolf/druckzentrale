@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-# Druckzentrale – Drucken, Scannen, Tintenstand, Wartung und Fax fuer Drucker unter Linux (alle Marken,
-# Zusatzfunktionen fuer HP ueber HPLIP).
-# Baut auf den Linux-Standardwegen auf: CUPS (Drucken, Status, Tinte ueber IPP), HPLIP (HP-eigene
-# Geraete, Tinte, Fax), SANE (Scannen; Netzwerk/IPP-over-USB ueber sane-airscan, sonst hpaio).
+# Druckzentrale – Drucken, Scannen, Tintenstand und Wartung fuer Drucker unter Linux (alle Marken).
+# Eigenstaendig, ohne Herstellersoftware: CUPS und IPP (Drucken, Status, Tinte), SANE mit sane-airscan/eSCL
+# (Scannen), bei HP-Geraeten deren eingebaute Weboberflaeche (Reinigung, Berichte).
 import json
 import os
 import re
@@ -29,7 +28,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.30"
+APP_VERSION = "1.0.31"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -38,7 +37,6 @@ INSTALL_DIR = os.path.expanduser("~/.local/share/druckzentrale")
 OLD_INSTALL_DIR = os.path.expanduser("~/.local/share/hp-druckzentrale")
 DESKTOP_FILE = os.path.expanduser("~/.local/share/applications/druckzentrale.desktop")
 OLD_DESKTOP_FILE = os.path.expanduser("~/.local/share/applications/hp-druckzentrale.desktop")
-HPLIP_DIR = "/usr/share/hplip"
 NEEDED_PACKAGES = ["python-pycups", "sane", "sane-airscan", "ipp-usb", "python-pillow"]
 
 
@@ -88,57 +86,9 @@ def bg(fn, done=None):
     threading.Thread(target=work, daemon=True).start()
 
 
-# ---------- HPLIP (in eigenem Prozess, damit sein Logging und Fehler die App nicht stoeren) ----------
-HPLIP_SNIPPET = r'''
-import sys, json
-sys.path.insert(0, "/usr/share/hplip")
-from base import device
-mode, uri = sys.argv[1], sys.argv[2]
-out = {}
-if mode == "caps":
-    m = device.queryModelByURI(uri)
-    out = {k: int(m.get(k + "-type", 0) or 0) for k in ("fax", "scan", "clean", "align", "color-cal", "linefeed-cal", "pq-diag")}
-elif mode == "faxppd":
-    from prnt import cups as hcups
-    ppd, kind, nick = hcups.getFaxPPDFile(device.queryModelByURI(uri), "fax")
-    out = {"ppd": ppd or "", "nick": nick or ""}
-else:
-    d = device.Device(uri)
-    try:
-        d.queryDevice(quick=False)
-    finally:
-        try:
-            d.close()
-        except Exception:
-            pass
-    agents, i = [], 1
-    while "agent%d-type" % i in d.dq:
-        agents.append({"desc": str(d.dq.get("agent%d-desc" % i, "")), "level": int(d.dq.get("agent%d-level" % i, -1)),
-                       "kind": int(d.dq.get("agent%d-kind" % i, 0))})
-        i += 1
-    out = {"agents": agents, "status": str(d.dq.get("status-desc", ""))}
-print("JSON:" + json.dumps(out))
-'''
-
-
-def hplip(mode, uri, timeout=40):
-    if not os.path.isdir(HPLIP_DIR):
-        return None
-    rc, out, err = run([sys.executable if os.path.basename(sys.executable).startswith("python") else "python3",
-                        "-c", HPLIP_SNIPPET, mode, uri], timeout)
-    for line in out.splitlines()[::-1]:
-        if line.startswith("JSON:"):
-            return json.loads(line[5:])
-    return None
-
-
-def hp_uri_for(printer):
-    return next((u for u in printer.uris if u.startswith("hp:")), "")
-
-
 # ---------- Drucker ----------
 class Printer:
-    FIELDS = ("queue", "fax_queue", "uris", "model", "info", "serial", "host", "caps")
+    FIELDS = ("queue", "uris", "model", "info", "serial", "host")
 
     def to_dict(self):
         return {k: getattr(self, k) for k in self.FIELDS}
@@ -153,13 +103,11 @@ class Printer:
 
     def __init__(self):
         self.queue = None        # CUPS-Warteschlange, falls eingerichtet
-        self.fax_queue = None    # HPLIP-Fax-Warteschlange (hpfax:/...)
         self.uris = []
         self.model = ""
         self.info = ""
         self.serial = ""
         self.host = ""          # IP-Adresse im Netz (fuer Weboberflaeche und direkte IPP-Abfrage)
-        self.caps = None         # {"fax", "scan"} aus HPLIP
 
     @property
     def uri(self):
@@ -177,8 +125,8 @@ class Printer:
         return self.info or self.model or self.queue or self.uri
 
     def best_setup_uri(self):
-        # Treiberlos (IPP Everywhere) zuerst, dann HPLIP, dann rohes USB
-        for pref in ("ipps://", "ipp://", "dnssd://", "hp:", "usb://"):
+        # Treiberlos (IPP Everywhere) zuerst, dann rohes USB
+        for pref in ("ipps://", "ipp://", "dnssd://", "usb://"):
             u = next((x for x in self.uris if x.startswith(pref)), None)
             if u:
                 return u
@@ -209,18 +157,6 @@ def mdns_ipv4():
             name = re.sub(r"\\(\d{3})", lambda m: chr(int(m.group(1))), f[3])
             ips[name] = f[7]
     return ips
-
-
-_hp_uri_cache = {}
-
-
-def hp_uri_from_ip(ip):
-    """HPLIP-Adresse (hp:/net/...) aus der IP; HPLIP braucht sie fuer Tinte, Faehigkeiten und Fax."""
-    if ip not in _hp_uri_cache:
-        rc, out, _ = run(["hp-makeuri", ip], 40)
-        m = re.search(r"CUPS URI:\s*(hp:/net/\S+)", out)
-        _hp_uri_cache[ip] = m.group(1) if m else ""
-    return _hp_uri_cache[ip]
 
 
 def service_name(uri):
@@ -255,8 +191,8 @@ def discover():
         return None
 
     def add(uri, model, info, queue=None):
-        if uri.startswith("hpfax:"):
-            return
+        if uri.startswith(("hp:", "hpfax:", "hpaio:")):
+            return   # Adressen der HP-Software, ohne sie nicht nutzbar
         p = find(uri, model)
         if p is None:
             p = Printer()
@@ -291,7 +227,7 @@ def discover():
         if uri.startswith(("file:", "cups-pdf:")):
             continue
         add(uri, model, d.get("device-info", ""))
-    # Netzwerkdrucker: IP ueber mDNS, daraus die HPLIP-Adresse
+    # Netzwerkdrucker: IP ueber mDNS
     if any("usb" not in p.uri for p in printers):
         ips = mdns_ipv4()
         for p in printers:
@@ -301,21 +237,8 @@ def discover():
                 or next((m.group(1) for m in (re.search(r"ip=([\d.]+)", u) for u in p.uris) if m), None)
             if ip:
                 p.host = ip
-                if not hp_uri_for(p) and shutil.which("hp-makeuri") and (is_hp(p.model) or is_hp(" ".join(p.uris))):
-                    u = hp_uri_from_ip(ip)
-                    if u:
-                        p.uris.append(u)
             elif p.host and not re.fullmatch(r"[\w.-]+", p.host):
                 p.host = ""   # kein brauchbarer Hostname (z.B. mDNS-Dienstname)
-    # Fax-Warteschlangen dem Geraet zuordnen
-    for name, q in queues.items():
-        uri = q.get("device-uri", "")
-        if uri.startswith("hpfax:"):
-            target = uri.replace("hpfax:", "hp:")
-            serial = uri_ids(uri)[0]
-            p = next((p for p in printers if target in p.uris or (serial and serial == p.serial)), None)
-            if p:
-                p.fax_queue = name
     return printers
 
 
@@ -325,7 +248,7 @@ STATUS_ATTRS = ["printer-state", "printer-state-reasons", "printer-state-message
 
 
 def query_status(p):
-    """Status und Tinte: erst ueber IPP (CUPS), sonst ueber HPLIP."""
+    """Status und Tinte ueber IPP: beim Geraet selbst, sonst ueber die CUPS-Warteschlange."""
     res = {"state": "", "reasons": [], "message": "", "markers": [], "supported": {}}
     attrs = queue_attrs = None
     # Netzwerkdrucker (IP oder Name wie HP….local); ein ausgeschalteter laesst sich nicht verbinden
@@ -378,14 +301,6 @@ def query_status(p):
                                        "color": colors[i] if i < len(colors) else ""})
         except (cups.IPPError, RuntimeError):
             pass
-    hp = hp_uri_for(p)
-    if not res["markers"] and hp:
-        data = hplip("levels", hp)
-        if data:
-            for a in data.get("agents", []):
-                if a["kind"] in (1, 3, 5, 6) or a["desc"]:   # Tinte/Toner (HPLIP-Agentenarten)
-                    res["markers"].append({"name": a["desc"] or "Tinte", "level": a["level"], "color": ""})
-            res["state"] = res["state"] or data.get("status", "")
     return res
 
 
@@ -435,19 +350,15 @@ def marker_color(m):
 # ---------- Einrichten ----------
 def setup_printer(p):
     uri = p.best_setup_uri()
-    if uri.startswith("hp:") and not any(u.startswith(("ipp", "dnssd")) for u in p.uris) and shutil.which("hp-setup"):
-        # Aeltere HP-Geraete: HPLIPs eigener Assistent waehlt Treiber (und bei Bedarf Fax) richtig
-        subprocess.Popen(["hp-setup", uri], start_new_session=True)
-        return "HPLIP-Einrichtung gestartet – bitte dort fertigstellen und danach „Drucker suchen“ drücken."
     name = re.sub(r"[^A-Za-z0-9_-]+", "_", p.model or p.info or "Drucker").strip("_")[:60] or "Drucker"
     cmd = ["pkexec", "lpadmin", "-p", name, "-E", "-v", uri, "-m", "everywhere"]
     if not uri.startswith(("ipp://", "ipps://", "dnssd://")):
         # Ohne IPP (aeltere USB- oder Netzwerkdrucker): passenden Treiber aus allen installierten suchen
-        # (HPLIP, Gutenprint, Foomatic …). CUPS markiert den empfohlenen.
+        # (Gutenprint, Foomatic …). CUPS markiert den empfohlenen.
         rc, out, _ = run(["lpinfo", "--make-and-model", p.model or p.info, "-m"], 30)
         lines = [l for l in out.splitlines() if l.strip()]
         best = next((l for l in lines if "recommended" in l.lower()), None) or \
-            next((l for l in lines if "hpcups" in l or "gutenprint" in l.lower()), None) or (lines[0] if lines else None)
+            next((l for l in lines if "gutenprint" in l.lower()), None) or (lines[0] if lines else None)
         if not best:
             raise RuntimeError("Kein passender Treiber installiert. Neuere Drucker gehen treiberlos über "
                                "Netzwerk oder „ipp-usb“; für ältere hilft der Treiber des Herstellers.")
@@ -478,7 +389,7 @@ def ledm_jobs(ip):
     return []
 
 
-# Aufbau wie in HPLIP (base/maint.py, CleanXML)
+# Aufbau der Anfrage an die Geraeteschnittstelle (LEDM) der HP-Drucker
 LEDM_JOB_XML = ('<?xml version="1.0" encoding="UTF-8"?>\n'
                 '<ipcap:InternalPrintCap xmlns:ipcap="http://www.hp.com/schemas/imaging/con/ledm/internalprintcap/2008/03/21" '
                 'xmlns:ipdyn="http://www.hp.com/schemas/imaging/con/ledm/internalprintdyn/2008/03/21" '
@@ -517,19 +428,9 @@ LEDM_LABELS = {
     "networkDiagnosticPage": ("report", "Netzwerk-Testbericht", "Prüft LAN/WLAN-Verbindung."),
     "networkSummary": ("report", "Netzwerkkonfiguration", "IP-Adresse und Netzwerkeinstellungen."),
     "wirelessNetworkPage": ("report", "WLAN-Testbericht", "Signal und WLAN-Einstellungen."),
-    "faxConfigurationReport": ("report", "Fax-Konfigurationsbericht", ""),
-    "faxActivityLog": ("report", "Faxprotokoll", "Gesendete und empfangene Faxe."),
-    "faxLastCallReport": ("report", "Letzter Faxvorgang", ""),
-    "faxErrorReport": ("report", "Fax-Fehlerbericht", ""),
 }
 
 CLEAN_LEVELS = ["cleaningPage", "cleaningPageLevel1", "cleaningPageLevel2", "cleaningPageLevel3"]
-
-HPLIP_TOOLS = [("clean", "hp-clean", "Druckköpfe reinigen", "Bei Streifen oder blassen Farben."),
-               ("align", "hp-align", "Druckköpfe ausrichten", "Bei versetzten oder doppelten Linien."),
-               ("color-cal", "hp-colorcal", "Farbkalibrierung", "Wenn Farben nicht stimmen."),
-               ("linefeed-cal", "hp-linefeedcal", "Zeilenvorschub kalibrieren", "Gegen Querstreifen."),
-               ("pq-diag", "hp-pqdiag", "Druckqualitäts-Diagnose", "Testseite zum Beurteilen der Qualität.")]
 
 CUPS_COMMANDS = {"Clean": ("Druckkopf reinigen", "Reinigung über den Druckertreiber."),
                  "PrintSelfTestPage": ("Selbsttestseite", "Der Drucker druckt seine eigene Testseite."),
@@ -555,25 +456,6 @@ def cups_command(queue, cmd):
     return cups.Connection().printFile(queue, path, cmd, {})
 
 
-def setup_fax_queue(p):
-    """Fax-Warteschlange wie HPLIP sie anlegt: hpfax:-Adresse und der Faxtreiber, den HPLIP zum Modell waehlt."""
-    uri = hp_uri_for(p)
-    if not uri:
-        raise RuntimeError("HPLIP kennt diesen Drucker nicht.")
-    data = hplip("faxppd", uri)
-    ppd = (data or {}).get("ppd")
-    if not ppd:
-        raise RuntimeError("Kein HP-Faxtreiber gefunden (HPLIP vollständig installiert?).")
-    name = re.sub(r"[^A-Za-z0-9_-]+", "_", (p.queue or p.model or "HP")).strip("_")[:50] + "_Fax"
-    model = re.sub(r"\s+-\s+.*$", "", p.model or "HP")
-    cmd = ["pkexec", "lpadmin", "-p", name, "-E", "-v", uri.replace("hp:", "hpfax:", 1),
-           "-P" if os.path.exists(ppd) else "-m", ppd, "-D", f"{model} Fax"]
-    rc, out, err = run(cmd, 120)
-    if rc != 0:
-        raise RuntimeError((err or out or "lpadmin fehlgeschlagen").strip())
-    return name
-
-
 def remove_queue(name):
     rc, out, err = run(["pkexec", "lpadmin", "-x", name], 60)
     if rc != 0:
@@ -592,7 +474,7 @@ def list_scanners():
             continue   # Webcams und Kameras sind keine Scanner
         found.append((dev, desc))
     # airscan (eSCL) zuerst: funktioniert bei Netzwerk und IPP-over-USB treiberlos. Dasselbe Geraet ueber
-    # HPLIP (hpaio) nur behalten, wenn es keinen airscan-Weg dafuer gibt.
+    # Treiber-Weg nur behalten, wenn es keinen airscan-Weg dafuer gibt.
     found.sort(key=lambda d: (not d[0].startswith("airscan"), d[1]))
     seen, unique = set(), []
     for dev, desc in found:
@@ -973,9 +855,6 @@ class SetupWizard(QtWidgets.QDialog):
         self.setup_label.setText(f"Richte „{p.title}“ ein … Gleich fragt ein Fenster nach deinem Passwort.")
 
         def done(ok, res):
-            if ok and "HPLIP" in res:
-                self.finish(True, res)
-                return
             self.finish(ok, res if ok else f"Einrichten fehlgeschlagen: {res}")
         bg(lambda: setup_printer(p), done)
 
@@ -1156,10 +1035,10 @@ def is_toner(markers):
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    OVERVIEW, PRINT, SCAN, FAX, MAINT = range(5)
+    OVERVIEW, PRINT, SCAN, MAINT = range(4)
     HOME = OVERVIEW
     NAV = [("Übersicht", "go-home"), ("Drucken", "document-print"), ("Scannen", "scanner"),
-           ("Fax", "mail-send"), ("Wartung", "configure")]
+           ("Wartung", "configure")]
 
     def __init__(self):
         super().__init__()
@@ -1204,10 +1083,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stack.addWidget(self.ov_scroll)
         self.tab_print = self.build_print_tab()
         self.tab_scan = self.build_scan_tab()
-        self.tab_fax = self.build_fax_tab()
         self.stack.addWidget(self.titled("Drucken", self.tab_print))
         self.stack.addWidget(self.titled("Scannen", self.tab_scan, framed=False))
-        self.stack.addWidget(self.titled("Fax", self.tab_fax))
         self.mt_scroll, self.mt_body = self.scroll_page()
         self.stack.addWidget(self.mt_scroll)
 
@@ -1298,7 +1175,7 @@ class MainWindow(QtWidgets.QMainWindow):
         v = QtWidgets.QLabel(f"Version {APP_VERSION}")
         v.setObjectName("accent")
         lay.addWidget(v)
-        desc = QtWidgets.QLabel("Drucken, Scannen, Tinte/Toner, Wartung und Fax für Drucker unter Linux. "
+        desc = QtWidgets.QLabel("Drucken, Scannen, Tinte/Toner und Wartung für Drucker unter Linux. "
                                 "Inoffiziell und unabhängig von Druckerherstellern. Lizenz: MIT.")
         desc.setWordWrap(True)
         lay.addWidget(desc)
@@ -1421,7 +1298,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ov_tiles = {
             self.PRINT: tile("Drucken", "Dokumente und Fotos", "document-print", lambda: self.go(self.PRINT)),
             self.SCAN: tile("Scannen", "Als PDF oder Bild speichern", "scanner", lambda: self.go(self.SCAN)),
-            self.FAX: tile("Fax", "Dokumente senden", "mail-send", lambda: self.go(self.FAX)),
             self.MAINT: tile("Wartung", "Reinigen, Berichte, Aufträge", "configure", lambda: self.go(self.MAINT)),
         }
         for i, w in enumerate(self.ov_tiles.values()):
@@ -1488,7 +1364,7 @@ class MainWindow(QtWidgets.QMainWindow):
             pass   # Seite wurde gerade neu aufgebaut
 
     def fill_features(self, res=None):
-        """Funktionsprofil: was dieser Drucker kann (aus IPP, Scanner-Suche und HPLIP)."""
+        """Funktionsprofil: was dieser Drucker kann (aus IPP und Scanner-Suche)."""
         p = self.current
         if not p or not getattr(self, "ov_feat_label", None):
             return
@@ -1505,8 +1381,6 @@ class MainWindow(QtWidgets.QMainWindow):
             feats.append("✓ Scannen" + (" mit Vorlageneinzug" if getattr(self, "duplex_value", None) or
                                         any(re.search(r"adf|feeder", self.scan_source.itemData(i) or "", re.I)
                                             for i in range(self.scan_source.count())) else ""))
-        if p.caps and p.caps.get("fax"):
-            feats.append("✓ Fax")
         try:
             self.clear(self.ov_feat_row)
             for f in feats:
@@ -1523,8 +1397,7 @@ class MainWindow(QtWidgets.QMainWindow):
             pass
 
     def sync_tiles(self):
-        p = self.current
-        show = {self.SCAN: bool(self.scanners), self.FAX: bool(p and p.caps and p.caps.get("fax"))}
+        show = {self.SCAN: bool(self.scanners)}
         for page, w in getattr(self, "ov_tiles", {}).items():
             try:
                 w.setVisible(show.get(page, True))
@@ -1613,13 +1486,12 @@ class MainWindow(QtWidgets.QMainWindow):
         lay.addLayout(r)
 
     def load_maintenance(self, p):
-        """Was dieser Drucker an Wartung kann: HP-Geraeteschnittstelle, HPLIP-Werkzeuge, CUPS-Befehle."""
+        """Was dieser Drucker an Wartung kann: Geraeteschnittstelle (HP, LEDM) und CUPS-Befehle des Treibers."""
         ip = p.host if re.fullmatch(r"[\d.]+", p.host or "") else None
-        hp = hp_uri_for(p)
 
         def work():
-            return {"ledm": ledm_jobs(ip) if ip and (is_hp(p.model) or hp) else [],
-                    "caps": hplip("caps", hp) if hp else None,
+            # Andere Marken antworten dort einfach nicht – dann bleibt die Liste leer
+            return {"ledm": ledm_jobs(ip) if ip else [],
                     "cups": cups_commands(p.queue) if p.queue else []}
 
         def done(ok, res):
@@ -1646,12 +1518,6 @@ class MainWindow(QtWidgets.QMainWindow):
                                        button="Drucken" if kind == "report" else "Ausführen")
                     if kind == "report":
                         self.mt_reports.show()
-                caps = res["caps"] or {}
-                if not res["ledm"]:
-                    for key, tool, text, desc in HPLIP_TOOLS:
-                        if caps.get(key, 0) > 0 and shutil.which(tool):
-                            self.add_maint_row(self.mt_q, "configure", text, desc,
-                                               lambda _=False, tl=tool: self.hplip_tool(tl))
                 for c in res["cups"]:
                     if c in CUPS_COMMANDS and not (c == "Clean" and "clean" in seen):
                         text, desc = CUPS_COMMANDS[c]
@@ -1799,7 +1665,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @staticmethod
     def printers_sig(printers):
-        return [(printer_key(p), p.queue, p.fax_queue, sorted(p.uris), p.host) for p in printers]
+        return [(printer_key(p), p.queue, sorted(p.uris), p.host) for p in printers]
 
     def search(self):
         self.act_search.setEnabled(False)
@@ -1813,7 +1679,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if res:
                 for p in res:
                     # Bekanntes behalten: ist der Drucker aus, findet die Suche nur die Warteschlange
-                    # (ohne IP, ohne HPLIP-Adresse) – dann fehlten Name, Fax und Statusabfrage
+                    # (ohne IP) – dann fehlten Name und Statusabfrage
                     known = next((q for q in self.printers if printer_key(q) == printer_key(p)
                                   or (p.queue and q.queue == p.queue)), None)
                     if known is None:
@@ -1822,9 +1688,6 @@ class MainWindow(QtWidgets.QMainWindow):
                     if re.fullmatch(r"[\d.]+", known.host or "") and not re.fullmatch(r"[\d.]+", p.host or ""):
                         p.host = known.host
                     p.model = p.model or known.model
-                    p.fax_queue = p.fax_queue or known.fax_queue
-                    if p.caps is None:
-                        p.caps = known.caps
                 self.settings.setValue("printers_cache", json.dumps([p.to_dict() for p in res]))
             elif self.printers:
                 self.status.showMessage("Drucker gerade nicht erreichbar – ist er eingeschaltet?")
@@ -1860,7 +1723,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_actions()
         if p:
             self.refresh_status()
-            self.refresh_caps()
             self.match_scanner()
 
     def update_actions(self):
@@ -1873,11 +1735,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.print_hint.setVisible(bool(p and not p.queue))
         self.nav.item(self.SCAN).setHidden(not self.scanners)
         self.sync_tiles()
-        has_fax = bool(p and p.caps and p.caps.get("fax"))
-        self.nav.item(self.FAX).setHidden(not has_fax)
-        if not has_fax and self.stack.currentIndex() == self.FAX:
-            self.go(self.OVERVIEW)
-        self.update_fax_state()
+
 
     # ----- Status und Fuellstaende -----
     def refresh_status(self, p=None):
@@ -1984,12 +1842,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.build_overview()
             self.fill_printer_list()
 
-    def hplip_tool(self, tool):
-        uri = hp_uri_for(self.current) if self.current else ""
-        if uri:
-            subprocess.Popen([tool, "-d", uri], start_new_session=True)
-            self.status.showMessage(f"{tool} gestartet.")
-
     def run_wizard(self):
         wiz = SetupWizard(self)
         wiz.setStyleSheet(make_qss())
@@ -2079,25 +1931,6 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 QtWidgets.QMessageBox.warning(self, APP_NAME, f"Installation fehlgeschlagen: {res}")
         bg(work, done)
-
-    def refresh_caps(self):
-        p = self.current
-        if not p or p.caps is not None:
-            return
-        uri = hp_uri_for(p)
-        if not uri:
-            p.caps = {"fax": 0, "scan": 0}
-            return
-
-        def done(ok, res):
-            p.caps = res if ok and res else {"fax": 0, "scan": 0}
-            if ok and res and p in self.printers:
-                self.settings.setValue("printers_cache", json.dumps([q.to_dict() for q in self.printers]))
-            if p is self.current:
-                self.update_actions()
-                self.fill_features()
-        bg(lambda: hplip("caps", uri), done)
-
 
     # ----- Drucken -----
     def build_print_tab(self):
@@ -2520,7 +2353,7 @@ class MainWindow(QtWidgets.QMainWindow):
         elif not res:
             self.scanner_combo.addItem("Kein Scanner gefunden", None)
         for dev, desc in self.scanners:
-            kind = "Netzwerk/IPP" if dev.startswith("airscan") else "HPLIP"
+            kind = "Netzwerk/IPP" if dev.startswith("airscan") else "Treiber"
             short = re.sub(r"^eSCL\s+|\s+ip=.*$", "", desc)   # airscan haengt Protokoll und IPs an
             self.scanner_combo.addItem(f"{short}  ({kind})", dev)
         self.scanner_combo.setEnabled(bool(self.scanners))
@@ -2647,104 +2480,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.scan_saved = True
         bg(lambda: save_pages(files, path, ext, self.scan_dpi), done)
 
-    # ----- Fax -----
-    def build_fax_tab(self):
-        w = QtWidgets.QWidget()
-        lay = QtWidgets.QVBoxLayout(w)
-        self.fax_hint = QtWidgets.QLabel()
-        self.fax_hint.setWordWrap(True)
-        lay.addWidget(self.fax_hint)
-        self.fax_setup_btn = QtWidgets.QPushButton("Fax einrichten")
-        self.fax_setup_btn.setObjectName("primary")
-        self.fax_setup_btn.clicked.connect(self.setup_fax)
-        lay.addWidget(self.fax_setup_btn)
-        form = QtWidgets.QFormLayout()
-        self.fax_number = QtWidgets.QLineEdit()
-        self.fax_number.setPlaceholderText("Faxnummer, mehrere mit Komma")
-        form.addRow("An", self.fax_number)
-        lay.addLayout(form)
-        self.fax_files = QtWidgets.QListWidget()
-        lay.addWidget(self.fax_files, 1)
-        row = QtWidgets.QHBoxLayout()
-        add = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("document-open"), "Dokumente hinzufügen…")
-        add.clicked.connect(self.add_fax_files)
-        scan_btn = QtWidgets.QPushButton("Gescannte Seiten übernehmen")
-        scan_btn.clicked.connect(self.fax_from_scan)
-        row.addWidget(add)
-        row.addWidget(scan_btn)
-        row.addStretch(1)
-        lay.addLayout(row)
-        self.fax_send = QtWidgets.QPushButton("Fax senden")
-        self.fax_send.setMinimumHeight(36)
-        self.fax_send.setObjectName("primary")
-        self.fax_send.clicked.connect(self.send_fax)
-        lay.addWidget(self.fax_send)
-        self.fax_log = QtWidgets.QPlainTextEdit()
-        self.fax_log.setReadOnly(True)
-        self.fax_log.setMaximumHeight(120)
-        lay.addWidget(self.fax_log)
-        return w
-
-    def update_fax_state(self):
-        p = self.current
-        has_queue = bool(p and p.fax_queue)
-        self.fax_hint.setText(f"Fax über die Warteschlange „{p.fax_queue}“." if has_queue else
-                              "Dieser Drucker kann faxen. Dafür wird einmalig eine eigene Fax-Warteschlange eingerichtet "
-                              "(fragt nach deinem Passwort). Am Drucker muss eine Telefonleitung angeschlossen sein.")
-        self.fax_setup_btn.setVisible(not has_queue)
-        self.fax_send.setEnabled(has_queue)
-
-    def setup_fax(self):
-        p = self.current
-        uri = hp_uri_for(p) if p else ""
-        if not uri:
-            return
-        self.fax_setup_btn.setEnabled(False)
-        self.status.showMessage("Richte Fax ein … gleich fragt ein Fenster nach deinem Passwort.")
-
-        def done(ok, res):
-            self.fax_setup_btn.setEnabled(True)
-            if ok:
-                p.fax_queue = res
-                self.update_fax_state()
-                self.status.showMessage(f"Fax eingerichtet („{res}“).")
-            else:
-                self.status.showMessage(f"Fax einrichten fehlgeschlagen: {res}")
-        bg(lambda: setup_fax_queue(p), done)
-
-    def add_fax_files(self):
-        files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Dokumente faxen", os.path.expanduser("~"),
-                                                          "Dokumente (*.pdf *.jpg *.jpeg *.png *.tif *.tiff *.txt *.ps);;Alle Dateien (*)")
-        for f in files:
-            self.fax_files.addItem(f)
-
-    def fax_from_scan(self):
-        files = [self.page_view.item(i).data(QtCore.Qt.UserRole) for i in range(self.page_view.count())]
-        if not files or Image is None:
-            self.status.showMessage("Keine gescannten Seiten.")
-            return
-        path = os.path.join(tempfile.mkdtemp(prefix="dz-fax-"), "Scan.pdf")
-        save_pages(files, path, "pdf", self.scan_dpi)
-        self.fax_files.addItem(path)
-
-    def send_fax(self):
-        p = self.current
-        number = re.sub(r"[^0-9+,*#]", "", self.fax_number.text())
-        files = [self.fax_files.item(i).text() for i in range(self.fax_files.count())]
-        if not p or not p.fax_queue or not number or not files:
-            self.status.showMessage("Nummer und mindestens ein Dokument angeben.")
-            return
-        self.fax_send.setEnabled(False)
-        self.fax_log.setPlainText(f"Sende an {number} …")
-
-        def done(ok, res):
-            self.fax_send.setEnabled(True)
-            rc, out, err = res if ok else (-1, "", str(res))
-            self.fax_log.setPlainText((out + err).strip()[-3000:] or ("Gesendet." if rc == 0 else "Fehlgeschlagen."))
-            self.status.showMessage("Fax gesendet." if rc == 0 else "Fax fehlgeschlagen – Details unten.")
-        bg(lambda: run(["hp-sendfax", "-n", f"--fax={p.fax_queue}", "-f", number] + files, 1800), done)
-
-
 def migrate_old_install():
     """Frueher „HP Druckzentrale“ in ~/.local/share/hp-druckzentrale: einmalig umziehen
     (Programm, Menueeintrag, Einstellungen). Gibt den neuen Programmpfad zurueck, falls umgezogen."""
@@ -2764,7 +2499,7 @@ def migrate_old_install():
     os.makedirs(os.path.dirname(DESKTOP_FILE), exist_ok=True)
     with open(DESKTOP_FILE, "w") as f:
         f.write("[Desktop Entry]\nType=Application\nName=Druckzentrale\n"
-                "Comment=Drucken, Scannen, Tintenstand, Wartung und Fax für Drucker\n"
+                "Comment=Drucken, Scannen, Tintenstand und Wartung für Drucker\n"
                 f"Exec=python3 {target}\nIcon=printer\nCategories=Office;Graphics;Utility;\n"
                 "StartupWMClass=druckzentrale\n")
     for path in (OLD_DESKTOP_FILE,):
