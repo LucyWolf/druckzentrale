@@ -28,7 +28,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.31"
+APP_VERSION = "1.0.32"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -88,7 +88,7 @@ def bg(fn, done=None):
 
 # ---------- Drucker ----------
 class Printer:
-    FIELDS = ("queue", "uris", "model", "info", "serial", "host")
+    FIELDS = ("queue", "uris", "model", "info", "serial", "host", "fax")
 
     def to_dict(self):
         return {k: getattr(self, k) for k in self.FIELDS}
@@ -108,6 +108,7 @@ class Printer:
         self.info = ""
         self.serial = ""
         self.host = ""          # IP-Adresse im Netz (fuer Weboberflaeche und direkte IPP-Abfrage)
+        self.fax = None         # kann PC-Fax (None = noch nicht geprueft)
 
     @property
     def uri(self):
@@ -367,6 +368,201 @@ def setup_printer(p):
     if rc != 0:
         raise RuntimeError((err or out or "lpadmin fehlgeschlagen").strip())
     return f"Eingerichtet als „{name}“."
+
+
+# ---------- Fax: MH-Kodierung (ITU-T T.4, eindimensional) ----------
+# Aufbau wie ihn HP-Drucker beim PC-Fax erwarten: je Zeile ein EOL (000000000001), danach die Laufcodes
+# (beginnend mit Weiss), Zeile auf ganze Bytes mit Nullen aufgefuellt; am Seitenende 6 EOLs. MSB zuerst.
+_MH_WHITE_TERM = ("00110101 000111 0111 1000 1011 1100 1110 1111 10011 10100 00111 01000 001000 000011 110100 "
+                  "110101 101010 101011 0100111 0001100 0001000 0010111 0000011 0000100 0101000 0101011 0010011 "
+                  "0100100 0011000 00000010 00000011 00011010 00011011 00010010 00010011 00010100 00010101 "
+                  "00010110 00010111 00101000 00101001 00101010 00101011 00101100 00101101 00000100 00000101 "
+                  "00001010 00001011 01010010 01010011 01010100 01010101 00100100 00100101 01011000 01011001 "
+                  "01011010 01011011 01001010 01001011 00110010 00110011 00110100").split()
+_MH_BLACK_TERM = ("0000110111 010 11 10 011 0011 0010 00011 000101 000100 0000100 0000101 0000111 00000100 "
+                  "00000111 000011000 0000010111 0000011000 0000001000 00001100111 00001101000 00001101100 "
+                  "00000110111 00000101000 00000010111 00000011000 000011001010 000011001011 000011001100 "
+                  "000011001101 000001101000 000001101001 000001101010 000001101011 000011010010 000011010011 "
+                  "000011010100 000011010101 000011010110 000011010111 000001101100 000001101101 000011011010 "
+                  "000011011011 000001010100 000001010101 000001010110 000001010111 000001100100 000001100101 "
+                  "000001010010 000001010011 000000100100 000000110111 000000111000 000000100111 000000101000 "
+                  "000001011000 000001011001 000000101011 000000101100 000001011010 000001100110 "
+                  "000001100111").split()
+_MH_WHITE_MAKEUP = ("11011 10010 010111 0110111 00110110 00110111 01100100 01100101 01101000 01100111 011001100 "
+                    "011001101 011010010 011010011 011010100 011010101 011010110 011010111 011011000 011011001 "
+                    "011011010 011011011 010011000 010011001 010011010 011000 010011011").split()
+_MH_BLACK_MAKEUP = ("0000001111 000011001000 000011001001 000001011011 000000110011 000000110100 000000110101 "
+                    "0000001101100 0000001101101 0000001001010 0000001001011 0000001001100 0000001001101 "
+                    "0000001110010 0000001110011 0000001110100 0000001110101 0000001110110 0000001110111 "
+                    "0000001010010 0000001010011 0000001010100 0000001010101 0000001011010 0000001011011 "
+                    "0000001100100 0000001100101").split()
+_MH_EOL = "000000000001"
+FAX_WIDTH = 1728          # Bildpunkte je Faxzeile (Standard)
+FAX_HEIGHT = 2200         # Zeilen je Seite, wie der Drucker sie im Seitenauftrag erwartet
+
+
+def _mh_run(length, black):
+    term, makeup = (_MH_BLACK_TERM, _MH_BLACK_MAKEUP) if black else (_MH_WHITE_TERM, _MH_WHITE_MAKEUP)
+    out = []
+    if length >= 64:
+        out.append(makeup[length // 64 - 1])
+        length %= 64
+    out.append(term[length])
+    return "".join(out)
+
+
+_BYTE_BITS = [format(i, "08b") for i in range(256)]
+
+
+def mh_encode(img):
+    """Bild (Modus „1“, Breite FAX_WIDTH) -> MH-Bytes einer Seite."""
+    import re as _re
+    w, h = img.size
+    raw = img.tobytes()   # Modus „1“: 1 = weiss, 0 = schwarz, MSB zuerst, Zeilen auf Bytes aufgefuellt
+    stride = (w + 7) // 8
+    out = bytearray()
+    for y in range(h):
+        row = "".join(_BYTE_BITS[b] for b in raw[y * stride:(y + 1) * stride])[:w]
+        bits = [_MH_EOL]
+        black = False
+        if row.startswith("0"):
+            bits.append(_mh_run(0, False))   # jede Zeile beginnt mit einem (hier leeren) Weisslauf
+            black = True
+        for m in _re.finditer(r"1+|0+", row):
+            bits.append(_mh_run(len(m.group()), m.group()[0] == "0"))
+            black = not black
+        s = "".join(bits)
+        s += "0" * (-len(s) % 8)
+        out += int(s, 2).to_bytes(len(s) // 8, "big")
+    s = _MH_EOL * 6
+    s += "0" * (-len(s) % 8)
+    out += int(s, 2).to_bytes(len(s) // 8, "big")
+    return bytes(out)
+
+
+# ---------- Fax ueber die Geraeteschnittstelle des Druckers (HP „FaxPCSend“, reines HTTP, Port 8080) ----------
+# Ablauf wie bei HPs eigener Software: Auftrag anlegen -> je Seite Einstellungen schicken -> warten, bis der
+# Drucker verbunden ist -> Seitenbild (MH) schicken. Ohne Herstellersoftware, die Daten erzeugt die App selbst.
+FAX_NS = 'xmlns="http://www.hp.com/schemas/imaging/con/ledm/printtofaxdyn/2008/11/24" ' \
+         'xmlns:dd="http://www.hp.com/schemas/imaging/con/dictionaries/1.0/"'
+FAX_JOB_XML = ('<?xml version="1.0" encoding="UTF-8"?><FaxPCSendDyn ' + FAX_NS + '><FaxPCSendConfig>'
+               '<FaxTxPhoneNumber>%s</FaxTxPhoneNumber><NumPages>%d</NumPages><TTI_Control>TTI_Off</TTI_Control>'
+               '</FaxPCSendConfig></FaxPCSendDyn>')
+FAX_PAGE_XML = ('<?xml version="1.0" encoding="UTF-8" ?><FaxPCSendDyn ' + FAX_NS + '><PageConfig>'
+                '<PageNum>%d</PageNum><Width>1728</Width><Height>2200</Height><ImageType>BW</ImageType>'
+                '<Compression>mh</Compression><HorizontalDPI>200</HorizontalDPI><VerticalDPI>200</VerticalDPI>'
+                '</PageConfig></FaxPCSendDyn>')
+FAX_CANCEL_XML = ('<?xml version="1.0" encoding="UTF-8"?><Job xmlns="http://www.hp.com/schemas/imaging/con/ledm/'
+                  'jobs/2009/04/30"><JobUrl>%s</JobUrl><JobState>Canceled</JobState></Job>')
+FAX_STATES = {"Dialing": "wählt", "Connecting": "verbindet", "Transmitting": "sendet", "Idle": "bereit"}
+
+
+def fax_http(ip, method, path, body=b"", ctype="text/xml; charset=utf-8", timeout=30):
+    import http.client
+    c = http.client.HTTPConnection(ip, 8080, timeout=timeout)
+    try:
+        c.request(method, path, body=body, headers={"Content-Type": ctype} if body else {})
+        r = c.getresponse()
+        return r.status, dict(r.getheaders()), r.read()
+    finally:
+        c.close()
+
+
+def fax_capable(ip):
+    """Bietet der Drucker PC-Fax an? (steht in seinem Verzeichnis der Geraeteschnittstelle)"""
+    try:
+        st, _, body = fax_http(ip, "GET", "/DevMgmt/DiscoveryTree.xml", timeout=6)
+        return st == 200 and b"FaxPCSendManifest" in body
+    except Exception:
+        return False
+
+
+def _xml_field(xml, name):
+    m = re.search(rb"<(?:\w+:)?" + name.encode() + rb">([^<]*)<", xml)
+    return m.group(1).decode().strip() if m else ""
+
+
+def fax_pages(files):
+    """Dokumente (PDF, Bilder) -> Faxseiten: schwarzweiss, 1728 Punkte breit, 200 dpi, hoechstens 2200 Zeilen."""
+    pages = []
+    for f in files:
+        if f.lower().endswith(".pdf"):
+            tmp = tempfile.mkdtemp(prefix="dz-faxpdf-")
+            rc, out, err = run(["pdftoppm", "-r", "200", "-gray", "-png", f, os.path.join(tmp, "s")], 300)
+            if rc != 0:
+                raise RuntimeError(f"PDF nicht lesbar: {os.path.basename(f)} ({(err or out).strip()[:120]})")
+            srcs = [Image.open(os.path.join(tmp, x)) for x in sorted(os.listdir(tmp))]
+        else:
+            srcs = [Image.open(f)]
+        for im in srcs:
+            im = im.convert("L")
+            scale = min(FAX_WIDTH / im.width, FAX_HEIGHT / im.height)
+            im = im.resize((max(1, int(im.width * scale)), max(1, int(im.height * scale))), Image.LANCZOS)
+            page = Image.new("L", (FAX_WIDTH, FAX_HEIGHT), 255)
+            page.paste(im, ((FAX_WIDTH - im.width) // 2, 0))
+            pages.append(page.point(lambda v: 255 if v >= 128 else 0).convert("1", dither=Image.Dither.NONE))
+    if not pages:
+        raise RuntimeError("Keine Seiten zum Faxen.")
+    return pages
+
+
+def fax_send(ip, number, files, progress, cancel):
+    """Sendet ein Fax. progress(text) meldet den Stand, cancel ist ein threading.Event."""
+    progress("Seiten werden vorbereitet …")
+    pages = [mh_encode(pg) for pg in fax_pages(files)]
+    st, hdr, body = fax_http(ip, "POST", "/FaxPCSend/Job", (FAX_JOB_XML % (number, len(pages))).encode())
+    if st != 201:
+        raise RuntimeError(f"Drucker nimmt keinen Faxauftrag an (HTTP {st}).")
+    m = re.search(rb"/Jobs/JobList/\d+", " ".join(hdr.values()).encode() + b" " + body)
+    if not m:
+        raise RuntimeError("Drucker hat keine Auftragsnummer geliefert.")
+    job = m.group().decode()
+
+    def status():
+        return fax_http(ip, "GET", job, timeout=10)[2]
+    try:
+        for n, data in enumerate(pages, 1):
+            if cancel.is_set():
+                raise InterruptedError
+            res = _xml_field(status(), "ResourceURI")
+            st, _, _ = fax_http(ip, "POST", res, (FAX_PAGE_XML % n).encode())
+            if st != 202:
+                raise RuntimeError(f"Seite {n}: Einstellungen abgelehnt (HTTP {st}).")
+            deadline = time.time() + 180
+            while True:   # erst wenn der Drucker sendet, nimmt er das Seitenbild
+                if cancel.is_set():
+                    raise InterruptedError
+                x = status()
+                mach, err = _xml_field(x, "FaxTxMachineStatus"), _xml_field(x, "FaxTxErrorStatus")
+                if err in ("NoAnswer", "CommunicationError", "PcDisconnect", "Stop", "Busy", "NoDialTone"):
+                    raise RuntimeError({"NoAnswer": "Gegenstelle antwortet nicht.", "Busy": "Besetzt.",
+                                        "NoDialTone": "Kein Wählton – Telefonleitung am Drucker angeschlossen?"}
+                                       .get(err, f"Fax abgebrochen ({err})."))
+                if mach == "Transmitting":
+                    break
+                progress(f"Drucker {FAX_STATES.get(mach, mach.lower() or 'bereitet vor')} …")
+                if time.time() > deadline:
+                    raise RuntimeError("Drucker meldet keine Verbindung (Zeitüberschreitung).")
+                time.sleep(1)
+            progress(f"Sende Seite {n} von {len(pages)} …")
+            res = _xml_field(status(), "ResourceURI")
+            st, _, _ = fax_http(ip, "POST", res, data, "application/octet-stream", timeout=120)
+            if st != 202:
+                raise RuntimeError(f"Seite {n} abgelehnt (HTTP {st}).")
+        deadline = time.time() + 600
+        while time.time() < deadline:   # warten, bis der Drucker fertig gesendet hat
+            x = status()
+            state, err = _xml_field(x, "JobState"), _xml_field(x, "FaxTxErrorStatus")
+            if state in ("Completed",):
+                return f"Fax an {number} gesendet ({len(pages)} Seite(n))."
+            if state in ("Canceled", "Aborted") or err not in ("", "None", "NoError"):
+                raise RuntimeError(f"Fax nicht vollständig gesendet ({err or state}).")
+            progress(f"Drucker sendet … ({FAX_STATES.get(_xml_field(x, 'FaxTxMachineStatus'), 'läuft')})")
+            time.sleep(2)
+        return f"Fax an {number} übergeben – der Drucker sendet noch (siehe Faxprotokoll am Drucker)."
+    except InterruptedError:
+        fax_http(ip, "PUT", job, (FAX_CANCEL_XML % job).encode())
+        raise RuntimeError("Fax abgebrochen.")
 
 
 # ---------- Wartung ----------
@@ -1035,10 +1231,10 @@ def is_toner(markers):
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    OVERVIEW, PRINT, SCAN, MAINT = range(4)
+    OVERVIEW, PRINT, SCAN, FAX, MAINT = range(5)
     HOME = OVERVIEW
     NAV = [("Übersicht", "go-home"), ("Drucken", "document-print"), ("Scannen", "scanner"),
-           ("Wartung", "configure")]
+           ("Fax", "mail-send"), ("Wartung", "configure")]
 
     def __init__(self):
         super().__init__()
@@ -1085,6 +1281,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tab_scan = self.build_scan_tab()
         self.stack.addWidget(self.titled("Drucken", self.tab_print))
         self.stack.addWidget(self.titled("Scannen", self.tab_scan, framed=False))
+        self.tab_fax = self.build_fax_tab()
+        self.stack.addWidget(self.titled("Fax", self.tab_fax))
         self.mt_scroll, self.mt_body = self.scroll_page()
         self.stack.addWidget(self.mt_scroll)
 
@@ -1298,6 +1496,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ov_tiles = {
             self.PRINT: tile("Drucken", "Dokumente und Fotos", "document-print", lambda: self.go(self.PRINT)),
             self.SCAN: tile("Scannen", "Als PDF oder Bild speichern", "scanner", lambda: self.go(self.SCAN)),
+            self.FAX: tile("Fax", "Dokumente senden", "mail-send", lambda: self.go(self.FAX)),
             self.MAINT: tile("Wartung", "Reinigen, Berichte, Aufträge", "configure", lambda: self.go(self.MAINT)),
         }
         for i, w in enumerate(self.ov_tiles.values()):
@@ -1397,7 +1596,8 @@ class MainWindow(QtWidgets.QMainWindow):
             pass
 
     def sync_tiles(self):
-        show = {self.SCAN: bool(self.scanners)}
+        p = self.current
+        show = {self.SCAN: bool(self.scanners), self.FAX: bool(p and p.fax)}
         for page, w in getattr(self, "ov_tiles", {}).items():
             try:
                 w.setVisible(show.get(page, True))
@@ -1724,6 +1924,22 @@ class MainWindow(QtWidgets.QMainWindow):
         if p:
             self.refresh_status()
             self.match_scanner()
+            self.check_fax(p)
+
+    def check_fax(self, p):
+        """Einmal je Drucker pruefen, ob er PC-Fax kann; das Ergebnis wird gemerkt."""
+        if p.fax is not None or not re.fullmatch(r"[\d.]+", p.host or ""):
+            return
+
+        def done(ok, res):
+            if not ok or not self.status_cache.get(printer_key(p), {}).get("markers") and not res:
+                return   # Drucker evtl. aus: spaeter nochmal pruefen
+            p.fax = bool(res)
+            if p in self.printers:
+                self.settings.setValue("printers_cache", json.dumps([q.to_dict() for q in self.printers]))
+            if p is self.current:
+                self.sync_tiles()
+        bg(lambda: fax_capable(p.host), done)
 
     def update_actions(self):
         p = self.current
@@ -2078,6 +2294,84 @@ class MainWindow(QtWidgets.QMainWindow):
     def open_web(self):
         if self.current and self.current.host:
             webbrowser.open(f"http://{self.current.host}")
+
+    # ----- Fax -----
+    def build_fax_tab(self):
+        w = QtWidgets.QWidget()
+        lay = QtWidgets.QVBoxLayout(w)
+        form = QtWidgets.QFormLayout()
+        self.fax_number = QtWidgets.QLineEdit()
+        self.fax_number.setPlaceholderText("Faxnummer, z. B. 030 1234567")
+        form.addRow("An", self.fax_number)
+        lay.addLayout(form)
+        self.fax_files = QtWidgets.QListWidget()
+        lay.addWidget(self.fax_files, 1)
+        row = QtWidgets.QHBoxLayout()
+        add = QtWidgets.QPushButton("Dokumente hinzufügen…")
+        add.clicked.connect(self.add_fax_files)
+        take = QtWidgets.QPushButton("Gescannte Seiten übernehmen")
+        take.clicked.connect(self.fax_from_scan)
+        clear = QtWidgets.QPushButton("Liste leeren")
+        clear.clicked.connect(lambda: self.fax_files.clear())
+        for b in (add, take, clear):
+            row.addWidget(b)
+        row.addStretch(1)
+        lay.addLayout(row)
+        self.fax_state = QtWidgets.QLabel("Am Drucker muss eine Telefonleitung angeschlossen sein.")
+        self.fax_state.setObjectName("dim")
+        self.fax_state.setWordWrap(True)
+        lay.addWidget(self.fax_state)
+        row = QtWidgets.QHBoxLayout()
+        self.fax_cancel_btn = QtWidgets.QPushButton("Abbrechen")
+        self.fax_cancel_btn.hide()
+        self.fax_cancel_btn.clicked.connect(lambda: self.fax_cancel.set())
+        self.fax_send_btn = QtWidgets.QPushButton("Fax senden")
+        self.fax_send_btn.setObjectName("primary")
+        self.fax_send_btn.setMinimumHeight(36)
+        self.fax_send_btn.clicked.connect(self.send_fax)
+        row.addWidget(self.fax_cancel_btn)
+        row.addWidget(self.fax_send_btn, 1)
+        lay.addLayout(row)
+        self.fax_cancel = threading.Event()
+        return w
+
+    def add_fax_files(self):
+        files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Dokumente faxen", os.path.expanduser("~"),
+                                                          "Dokumente (*.pdf *.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp)")
+        for f in files:
+            self.fax_files.addItem(f)
+
+    def fax_from_scan(self):
+        files = [self.page_view.item(i).data(QtCore.Qt.UserRole) for i in range(self.page_view.count())]
+        if not files:
+            self.status.showMessage("Keine gescannten Seiten.")
+            return
+        for f in files:
+            self.fax_files.addItem(f)
+
+    def send_fax(self):
+        p = self.current
+        number = re.sub(r"[^0-9+*#]", "", self.fax_number.text())
+        files = [self.fax_files.item(i).text() for i in range(self.fax_files.count())]
+        if not p or not number or not files:
+            self.fax_state.setText("Faxnummer und mindestens ein Dokument angeben.")
+            return
+        if QtWidgets.QMessageBox.question(self, APP_NAME, f"{len(files)} Dokument(e) an {number} faxen?") \
+                != QtWidgets.QMessageBox.Yes:
+            return
+        self.fax_cancel.clear()
+        self.fax_send_btn.setEnabled(False)
+        self.fax_cancel_btn.show()
+
+        def progress(text):
+            ui(lambda: self.fax_state.setText(text))
+
+        def done(ok, res):
+            self.fax_send_btn.setEnabled(True)
+            self.fax_cancel_btn.hide()
+            self.fax_state.setText(res if ok else f"Fehler: {res}")
+            self.status.showMessage(res if ok else "Fax fehlgeschlagen.")
+        bg(lambda: fax_send(p.host, number, files, progress, self.fax_cancel), done)
 
     # ----- Scannen -----
     def field(self, label, widget):
