@@ -46,7 +46,7 @@ The sidebar lists your printers; the dot shows the state (green ready, orange me
 - **Print:** several files at once; copies, pages, color or black and white, paper size (only what the printer offers, e.g. A4, photo 10×15, envelopes, borderless), quality. *Print double-sided* is ticked by default if the printer can do it.
 - **Scan:** source *document feeder* or *scanner glass* – the app notices paper in the feeder and switches by itself. Color by default; *Document* scans at 300 dpi, *Photo* at 600 dpi. Resolution and scan area only offer what the chosen source supports. Preview, edge detection, import of existing images, reorder pages; save as **PDF** (multi-page), **JPG, PNG, BMP, TIFF** or **WEBP**. Unsaved scans are not lost by accident – the app asks first.
 - **Fax** (HP printers with PC fax, e.g. OfficeJet Pro): number, documents (PDF, images) or scanned pages, *Send*; the app shows dialing, connecting and sending and can cancel. A phone line must be connected to the printer.
-- **Maintenance:** print jobs (view, cancel), test page, printer web interface, rename the printer, setup wizard, remove the printer. For HP printers additionally:
+- **Maintenance:** print jobs (view, cancel), test page, printer web interface, rename the printer, choose a picture for the printer type (stays on this PC), setup wizard, remove the printer. For HP printers additionally:
   - **Clean printhead** – starts with level 1; when the printer is done the app asks whether the print looks fine and only then goes to the next, more thorough level
   - print quality diagnostics, line feed calibration
   - reports: printer status, diagnostics, network/Wi-Fi, usage
@@ -117,7 +117,7 @@ Die Seitenleiste zeigt deine Drucker; der Punkt zeigt den Zustand (grün bereit,
 - **Drucken:** mehrere Dateien auf einmal; Kopien, Seiten, Farbe oder Schwarzweiß, Papierformat (nur was der Drucker anbietet, z. B. A4, Foto 10×15, Umschläge, randlos), Qualität. *Beidseitig drucken* ist angehakt, wenn der Drucker es kann.
 - **Scannen:** Quelle *Vorlageneinzug* oder *Scannerglas* – die App merkt, wenn Papier im Einzug liegt, und schaltet selbst um. Standard ist Farbe; *Dokument* scannt mit 300 dpi, *Foto* mit 600 dpi. Auflösung und Scanbereich bieten nur an, was die gewählte Quelle kann. Vorschau, Kanten erkennen, vorhandene Bilder importieren, Seiten sortieren; speichern als **PDF** (mehrseitig), **JPG, PNG, BMP, TIFF** oder **WEBP**. Ungespeicherte Scans gehen nicht versehentlich verloren – die App fragt vorher.
 - **Fax** (HP-Drucker mit PC-Fax, z. B. OfficeJet Pro): Nummer, Dokumente (PDF, Bilder) oder gescannte Seiten, *Senden*; die App zeigt Wählen, Verbinden und Senden an und kann abbrechen. Am Drucker muss eine Telefonleitung angeschlossen sein.
-- **Wartung:** Druckaufträge (ansehen, abbrechen), Testseite, Weboberfläche des Druckers, Drucker umbenennen, Einrichtungs-Assistent, Drucker entfernen. Bei HP-Druckern zusätzlich:
+- **Wartung:** Druckaufträge (ansehen, abbrechen), Testseite, Weboberfläche des Druckers, Drucker umbenennen, Bild für den Druckertyp wählen (bleibt auf diesem PC), Einrichtungs-Assistent, Drucker entfernen. Bei HP-Druckern zusätzlich:
   - **Druckkopf reinigen** – beginnt mit Stufe 1; ist der Drucker fertig, fragt die App, ob das Druckbild in Ordnung ist, und geht erst dann zur nächsten, gründlicheren Stufe
   - Druckqualitäts-Diagnose, Zeilenvorschub kalibrieren
   - Berichte: Druckerstatus, Diagnose, Netzwerk/WLAN, Nutzung

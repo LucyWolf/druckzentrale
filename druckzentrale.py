@@ -28,7 +28,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.32"
+APP_VERSION = "1.0.33"
 # Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/druckzentrale"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -1226,6 +1226,19 @@ def real_name(p):
     return name
 
 
+IMAGE_DIR = os.path.expanduser("~/.local/share/druckzentrale/bilder")
+
+
+def printer_image_target(p):
+    model = re.sub(r"\s+-\s+.*$", "", p.model or p.info or "drucker")
+    return os.path.join(IMAGE_DIR, re.sub(r"[^a-z0-9]+", "_", norm(model) or "drucker") + ".png")
+
+
+def printer_image_path(p):
+    path = printer_image_target(p)
+    return path if os.path.exists(path) else None
+
+
 def is_toner(markers):
     return any("toner" in (m.get("name") or "").lower() for m in markers)
 
@@ -1460,6 +1473,7 @@ class MainWindow(QtWidgets.QMainWindow):
         head = QtWidgets.QHBoxLayout(hero_frame)
         head.setContentsMargins(28, 24, 28, 24)
         col = QtWidgets.QVBoxLayout()
+        col.addStretch(1)
         t = QtWidgets.QLabel(self.nickname(p))
         t.setObjectName("big")
         col.addWidget(t)
@@ -1479,6 +1493,7 @@ class MainWindow(QtWidgets.QMainWindow):
         chips.addWidget(conn)
         chips.addStretch(1)
         col.addLayout(chips)
+        col.addStretch(1)   # Abzeichen nicht in die Hoehe ziehen, wenn das Druckerbild die Karte hoeher macht
         if not p.queue:
             col.addSpacing(8)
             b = QtWidgets.QPushButton("Drucker einrichten")
@@ -1487,7 +1502,12 @@ class MainWindow(QtWidgets.QMainWindow):
             col.addWidget(b, 0, QtCore.Qt.AlignLeft)
         head.addLayout(col, 1)
         icon = QtWidgets.QLabel()
-        icon.setPixmap(QtGui.QIcon.fromTheme("printer").pixmap(128, 128))
+        own = printer_image_path(p)
+        pix = QtGui.QPixmap(own) if own else QtGui.QPixmap()
+        if not pix.isNull():
+            icon.setPixmap(pix.scaled(300, 170, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation))
+        else:
+            icon.setPixmap(QtGui.QIcon.fromTheme("printer").pixmap(128, 128))
         head.addWidget(icon)
         self.ov_body.addWidget(hero_frame)
 
@@ -1657,6 +1677,9 @@ class MainWindow(QtWidgets.QMainWindow):
             rn = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("document-edit"), "Drucker umbenennen")
             rn.clicked.connect(self.rename)
             r.addWidget(rn)
+            pic = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("insert-image"), "Bild für diesen Druckertyp…")
+            pic.clicked.connect(self.choose_printer_image)
+            r.addWidget(pic)
         if p and p.queue:
             rm = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("list-remove"), "Drucker von diesem PC entfernen")
             rm.clicked.connect(self.remove_current)
@@ -2045,6 +2068,21 @@ class MainWindow(QtWidgets.QMainWindow):
             if i >= 0:
                 self.media.setCurrentIndex(i)
         self.go(self.PRINT)
+
+    def choose_printer_image(self):
+        """Eigenes Bild je Druckertyp (Modell). Liegt nur auf diesem PC, wird nie mit der App verteilt."""
+        p = self.current
+        if not p:
+            return
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Bild für diesen Druckertyp", os.path.expanduser("~"),
+                                                        "Bilder (*.png *.jpg *.jpeg *.webp *.bmp)")
+        if not path:
+            return
+        target = printer_image_target(p)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        Image.open(path).convert("RGBA").save(target)
+        self.build_overview()
+        self.status.showMessage("Bild gespeichert – gilt für alle Drucker dieses Typs.")
 
     def rename(self):
         p = self.current
