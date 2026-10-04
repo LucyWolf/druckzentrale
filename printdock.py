@@ -28,7 +28,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.36"
+APP_VERSION = "1.0.37"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -1620,7 +1620,8 @@ class MainWindow(QtWidgets.QMainWindow):
             form.addRow("Adresse", QtWidgets.QLabel(p.host))
         form.addRow("Warteschlange", QtWidgets.QLabel(p.queue or "noch nicht eingerichtet"))
         tmpl = get_template(p)
-        form.addRow("Vorlage", QtWidgets.QLabel(tmpl.get("name", "Standard")))
+        self.ov_tmpl_label = QtWidgets.QLabel(tmpl.get("name", "Standard"))
+        form.addRow("Vorlage", self.ov_tmpl_label)
         dl.addLayout(form)
         self.ov_hints = QtWidgets.QVBoxLayout()
         dl.addLayout(self.ov_hints)
@@ -2058,6 +2059,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if i >= 0:
             self.media.setCurrentIndex(i)
         try:
+            self.ov_tmpl_label.setText(tmpl.get("name", "Standard"))
             self.clear(self.ov_hints)
             for h in tmpl.get("hinweise") or []:
                 lab = QtWidgets.QLabel("ℹ  " + h)
