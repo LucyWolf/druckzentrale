@@ -1,0 +1,52 @@
+# Neue Version automatisch bereitstellen: Wird APP_VERSION in druckzentrale.py erhöht und auf main
+# hochgeladen, prüft dieser Workflow alles und erstellt das Release mit Programm und Installern.
+# Ohne neue Versionsnummer passiert nichts. Versionsnummern gehen nie rückwärts.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: [druckzentrale.py]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Version lesen
+        id: v
+        run: |
+          VER=$(grep -oP '^APP_VERSION = "\K[0-9.]+' druckzentrale.py)
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$VER" >/dev/null; then
+            echo "v$VER gibt es schon – kein neues Release."
+            echo "neu=nein" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          LAST=$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)
+          if [ -n "$LAST" ] && [ "$(printf '%s\n%s\n' "$LAST" "$VER" | sort -V | tail -1)" != "$VER" ]; then
+            echo "::error::APP_VERSION $VER ist kleiner als die letzte Version $LAST – Versionen dürfen nie rückwärts gehen."
+            exit 1
+          fi
+          echo "neu=ja" >> "$GITHUB_OUTPUT"
+      - name: Prüfen
+        if: steps.v.outputs.neu == 'ja'
+        run: |
+          python3 -m py_compile druckzentrale.py
+          pip install -q pyflakes && python3 -m pyflakes druckzentrale.py
+          for f in linux/*.sh; do bash -n "$f"; done
+      - name: Release erstellen
+        if: steps.v.outputs.neu == 'ja'
+        run: |
+          VER=${{ steps.v.outputs.ver }}
+          gh release create "v$VER" druckzentrale.py linux/Druckzentrale-installieren.sh \
+            linux/Druckzentrale-arch-installer.desktop linux/Druckzentrale-deb-installer.desktop \
+            linux/Druckzentrale-installer.desktop --target "$GITHUB_SHA" \
+            --title "Druckzentrale v$VER" --generate-notes --latest

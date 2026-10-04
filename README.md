@@ -67,7 +67,7 @@ python3 druckzentrale.py
 
 Needs PySide6, pycups and Pillow; the installer pulls in everything else.
 
-**Releases (maintainers):** raise `APP_VERSION` in `druckzentrale.py` (the last digit counts up to 99), commit, push, run `tools/release.sh`.
+**Releases:** raise `APP_VERSION` in `druckzentrale.py` (the last digit counts up to 99) and push to `main` – also works in the GitHub web editor. A workflow checks the code and the installer script and publishes the release with the program and all installers. Without a new version number nothing is released.
 
 License: MIT, see [LICENSE](LICENSE).
 
@@ -138,6 +138,6 @@ python3 druckzentrale.py
 
 Braucht PySide6, pycups und Pillow; alles andere holt der Installer.
 
-**Releases (für Betreuer):** `APP_VERSION` in `druckzentrale.py` erhöhen (die letzte Stelle zählt bis 99), committen, pushen, `tools/release.sh` ausführen.
+**Releases:** `APP_VERSION` in `druckzentrale.py` erhöhen (die letzte Stelle zählt bis 99) und auf `main` hochladen – geht auch direkt im GitHub-Editor. Ein Workflow prüft Programm und Installationsskript und veröffentlicht das Release mit Programm und allen Installern. Ohne neue Versionsnummer wird nichts veröffentlicht.
 
 Lizenz: MIT, siehe [LICENSE](LICENSE).
