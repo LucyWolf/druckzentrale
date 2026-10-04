@@ -1,4 +1,4 @@
-# Neue Version automatisch bereitstellen: Wird APP_VERSION in druckzentrale.py erhöht und auf main
+# Neue Version automatisch bereitstellen: Wird APP_VERSION in printdock.py erhöht und auf main
 # hochgeladen, prüft dieser Workflow alles und erstellt das Release mit Programm und Installern.
 # Ohne neue Versionsnummer passiert nichts. Versionsnummern gehen nie rückwärts.
 name: Release
@@ -6,7 +6,7 @@ name: Release
 on:
   push:
     branches: [main]
-    paths: [druckzentrale.py]
+    paths: [printdock.py]
   workflow_dispatch:
 
 permissions:
@@ -24,7 +24,7 @@ jobs:
       - name: Version lesen
         id: v
         run: |
-          VER=$(grep -oP '^APP_VERSION = "\K[0-9.]+' druckzentrale.py)
+          VER=$(grep -oP '^APP_VERSION = "\K[0-9.]+' printdock.py)
           echo "ver=$VER" >> "$GITHUB_OUTPUT"
           if git rev-parse -q --verify "refs/tags/v$VER" >/dev/null; then
             echo "v$VER gibt es schon – kein neues Release."
@@ -39,14 +39,21 @@ jobs:
       - name: Prüfen
         if: steps.v.outputs.neu == 'ja'
         run: |
-          python3 -m py_compile druckzentrale.py
-          pip install -q pyflakes && python3 -m pyflakes druckzentrale.py
+          python3 -m py_compile printdock.py
+          pip install -q pyflakes && python3 -m pyflakes printdock.py
           for f in linux/*.sh; do bash -n "$f"; done
       - name: Release erstellen
         if: steps.v.outputs.neu == 'ja'
         run: |
           VER=${{ steps.v.outputs.ver }}
-          gh release create "v$VER" druckzentrale.py linux/Druckzentrale-installieren.sh \
-            linux/Druckzentrale-arch-installer.desktop linux/Druckzentrale-deb-installer.desktop \
-            linux/Druckzentrale-installer.desktop --target "$GITHUB_SHA" \
-            --title "Druckzentrale v$VER" --generate-notes --latest
+          EXTRA=()
+          if [ "$VER" = "1.0.35" ]; then
+            # Umbenennung Druckzentrale -> PrintDock: aeltere Fassungen und alte Doppelklick-Installer
+            # laden diese Namen; dieselben Dateien einmalig auch darunter bereitstellen
+            cp printdock.py /tmp/druckzentrale.py; cp linux/PrintDock-installieren.sh /tmp/Druckzentrale-installieren.sh
+            EXTRA=(/tmp/druckzentrale.py /tmp/Druckzentrale-installieren.sh)
+          fi
+          gh release create "v$VER" printdock.py linux/PrintDock-installieren.sh \
+            linux/PrintDock-arch-installer.desktop linux/PrintDock-deb-installer.desktop \
+            linux/PrintDock-installer.desktop "${EXTRA[@]}" --target "$GITHUB_SHA" \
+            --title "PrintDock v$VER" --generate-notes --latest

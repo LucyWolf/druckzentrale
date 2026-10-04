@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Druckzentrale – Drucken, Scannen, Tintenstand und Wartung fuer Drucker unter Linux (alle Marken).
+# PrintDock (frueher Druckzentrale) – Drucken, Scannen, Fax, Tintenstand und Wartung fuer Drucker (alle Marken).
 # Eigenstaendig, ohne Herstellersoftware: CUPS und IPP (Drucken, Status, Tinte), SANE mit sane-airscan/eSCL
 # (Scannen), bei HP-Geraeten deren eingebaute Weboberflaeche (Reinigung, Berichte).
 import json
@@ -27,16 +27,15 @@ try:
 except ImportError:
     Image = None
 
-APP_NAME = "Druckzentrale"
-APP_VERSION = "1.0.34"
-# Frueher hiess alles hp-druckzentrale; migrate_old_install() zieht alte Installationen um.
-UPDATE_REPO = "LucyWolf/druckzentrale"
+APP_NAME = "PrintDock"
+APP_VERSION = "1.0.35"
+# Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
+UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
 TESTED_PRINTERS = ["HP OfficeJet Pro 8620"]
-INSTALL_DIR = os.path.expanduser("~/.local/share/druckzentrale")
-OLD_INSTALL_DIR = os.path.expanduser("~/.local/share/hp-druckzentrale")
-DESKTOP_FILE = os.path.expanduser("~/.local/share/applications/druckzentrale.desktop")
-OLD_DESKTOP_FILE = os.path.expanduser("~/.local/share/applications/hp-druckzentrale.desktop")
+INSTALL_DIR = os.path.expanduser("~/.local/share/printdock")
+DESKTOP_FILE = os.path.expanduser("~/.local/share/applications/printdock.desktop")
+OLD_NAMES = ["hp-druckzentrale", "druckzentrale"]   # fruehere Ordner-, Menue- und Einstellungsnamen
 NEEDED_PACKAGES = ["python-pycups", "sane", "sane-airscan", "ipp-usb", "python-pillow"]
 
 
@@ -867,10 +866,10 @@ def latest_release():
 
 def install_update(tag):
     me = os.path.realpath(__file__)
-    url = f"https://github.com/{UPDATE_REPO}/releases/download/{tag}/druckzentrale.py"
+    url = f"https://github.com/{UPDATE_REPO}/releases/download/{tag}/printdock.py"
     with urllib.request.urlopen(url, timeout=60) as r:
         data = r.read()
-    compile(data, "druckzentrale.py", "exec")   # kaputter Download ersetzt nie die laufende Fassung
+    compile(data, "printdock.py", "exec")   # kaputter Download ersetzt nie die laufende Fassung
     tmp = me + ".neu"
     with open(tmp, "wb") as f:
         f.write(data)
@@ -938,7 +937,7 @@ class SetupWizard(QtWidgets.QDialog):
         # 1: Drucker vorbereiten
         p1 = QtWidgets.QWidget()
         l1 = QtWidgets.QVBoxLayout(p1)
-        t = QtWidgets.QLabel("Willkommen bei der Druckzentrale")
+        t = QtWidgets.QLabel("Willkommen bei PrintDock")
         t.setStyleSheet("font-size: 20px; font-weight: bold;")
         l1.addWidget(t)
         txt = QtWidgets.QLabel(
@@ -1012,7 +1011,7 @@ class SetupWizard(QtWidgets.QDialog):
             if not self.name_box.isHidden():
                 # nur beim ersten Einbinden gefragt; leer = echter Geraetename
                 name = self.name_edit.text().strip() or real_name(self.chosen)
-                QtCore.QSettings("druckzentrale", "druckzentrale").setValue(f"nick/{printer_key(self.chosen)}", name)
+                QtCore.QSettings("printdock", "printdock").setValue(f"nick/{printer_key(self.chosen)}", name)
             self.accept()
 
     def search(self):
@@ -1062,7 +1061,7 @@ class SetupWizard(QtWidgets.QDialog):
         self.setup_label.setText(text + ("\n\nAls Nächstes kannst du eine Testseite drucken." if ok else
                                          "\n\n„Fertig“ schließt die Einrichtung; sie lässt sich oben über „Einrichtung“ "
                                          "jederzeit erneut starten."))
-        settings = QtCore.QSettings("druckzentrale", "druckzentrale")
+        settings = QtCore.QSettings("printdock", "printdock")
         if ok and not settings.value(f"nick/{printer_key(self.chosen)}", ""):
             self.name_edit.setPlaceholderText(real_name(self.chosen))
             self.name_box.show()
@@ -1226,7 +1225,7 @@ def real_name(p):
     return name
 
 
-IMAGE_DIR = os.path.expanduser("~/.local/share/druckzentrale/bilder")
+IMAGE_DIR = os.path.expanduser("~/.local/share/printdock/bilder")
 
 
 def printer_image_target(p):
@@ -1261,7 +1260,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scan_saved = True   # False, solange gescannte Seiten nicht gespeichert sind
         self.scan_dpi = "300"
         self.status_cache = {}   # Drucker-Schluessel -> letzter Status
-        self.settings = QtCore.QSettings("druckzentrale", "druckzentrale")
+        self.settings = QtCore.QSettings("printdock", "printdock")
 
         self.act_search = QtGui.QAction("Drucker suchen", self, triggered=self.search)
         self.act_setup = QtGui.QAction("Einrichten", self, triggered=self.setup_current)
@@ -2813,34 +2812,45 @@ class MainWindow(QtWidgets.QMainWindow):
         bg(lambda: save_pages(files, path, ext, self.scan_dpi), done)
 
 def migrate_old_install():
-    """Frueher „HP Druckzentrale“ in ~/.local/share/hp-druckzentrale: einmalig umziehen
-    (Programm, Menueeintrag, Einstellungen). Gibt den neuen Programmpfad zurueck, falls umgezogen."""
-    old_settings = QtCore.QSettings("hp-druckzentrale", "hp-druckzentrale")
-    new_settings = QtCore.QSettings("druckzentrale", "druckzentrale")
-    if old_settings.allKeys() and not new_settings.allKeys():
-        for k in old_settings.allKeys():
-            new_settings.setValue(k, old_settings.value(k))
-        new_settings.sync()
+    """Fruehere Namen („HP Druckzentrale“, „Druckzentrale“): einmalig umziehen – Programm, Menueeintrag,
+    Einstellungen, eigene Druckerbilder. Gibt den neuen Programmpfad zurueck, falls umgezogen."""
+    new_settings = QtCore.QSettings("printdock", "printdock")
+    if not new_settings.allKeys():
+        for old in reversed(OLD_NAMES):   # die juengsten Einstellungen zuerst
+            old_settings = QtCore.QSettings(old, old)
+            if old_settings.allKeys():
+                for k in old_settings.allKeys():
+                    new_settings.setValue(k, old_settings.value(k))
+                new_settings.sync()
+                break
     me = os.path.realpath(__file__)
-    if not (os.path.exists(OLD_DESKTOP_FILE) or me.startswith(OLD_INSTALL_DIR + os.sep)):
+    apps = os.path.dirname(DESKTOP_FILE)
+    old_dirs = [os.path.expanduser(f"~/.local/share/{n}") for n in OLD_NAMES]
+    old_desktops = [os.path.join(apps, f"{n}.desktop") for n in OLD_NAMES]
+    if not (any(os.path.exists(d) for d in old_desktops) or any(me.startswith(d + os.sep) for d in old_dirs)):
         return None
     os.makedirs(INSTALL_DIR, exist_ok=True)
-    target = os.path.join(INSTALL_DIR, "druckzentrale.py")
+    for d in old_dirs:   # eigene Druckerbilder mitnehmen
+        src = os.path.join(d, "bilder")
+        if os.path.isdir(src):
+            shutil.copytree(src, IMAGE_DIR, dirs_exist_ok=True)
+    target = os.path.join(INSTALL_DIR, "printdock.py")
     shutil.copyfile(me, target)
     os.chmod(target, 0o755)
-    os.makedirs(os.path.dirname(DESKTOP_FILE), exist_ok=True)
+    os.makedirs(apps, exist_ok=True)
     with open(DESKTOP_FILE, "w") as f:
-        f.write("[Desktop Entry]\nType=Application\nName=Druckzentrale\n"
-                "Comment=Drucken, Scannen, Tintenstand und Wartung für Drucker\n"
+        f.write("[Desktop Entry]\nType=Application\nName=PrintDock\n"
+                "Comment=Drucken, Scannen, Fax, Tintenstand und Wartung für Drucker\n"
                 f"Exec=python3 {target}\nIcon=printer\nCategories=Office;Graphics;Utility;\n"
-                "StartupWMClass=druckzentrale\n")
-    for path in (OLD_DESKTOP_FILE,):
+                "StartupWMClass=printdock\n")
+    for path in old_desktops:
         try:
             os.remove(path)
         except OSError:
             pass
-    shutil.rmtree(OLD_INSTALL_DIR, ignore_errors=True)
-    run(["update-desktop-database", os.path.dirname(DESKTOP_FILE)], 20)
+    for d in old_dirs:
+        shutil.rmtree(d, ignore_errors=True)
+    run(["update-desktop-database", apps], 20)
     return target if target != me else None
 
 
@@ -2851,7 +2861,7 @@ def main():
         os.execv(sys.executable, [sys.executable, moved] + sys.argv[1:])
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
-    app.setDesktopFileName("druckzentrale")
+    app.setDesktopFileName("printdock")
     _bridge = Bridge()
     _bridge.call.connect(lambda fn: fn(), QtCore.Qt.QueuedConnection)
     win = MainWindow()

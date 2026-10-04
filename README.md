@@ -1,24 +1,24 @@
-**Language / Sprache:** [🇬🇧 English](#druckzentrale) | [🇩🇪 Deutsch](#druckzentrale-1)
+**Language / Sprache:** [🇬🇧 English](#printdock) | [🇩🇪 Deutsch](#printdock-1)
 
 ---
 
-# Druckzentrale
+# PrintDock
 
 Print, scan, fax, check ink or toner and maintain – for **printers on Linux**, in one simple window. Works over **USB, LAN and Wi-Fi** and with printers from any manufacturer that Linux supports. Standalone: no manufacturer software needed – for HP printers, fax, printhead cleaning and printer reports go straight through the printer's built-in interface.
 
-Unofficial and independent – not made by or affiliated with any printer manufacturer. The interface is in German.
+Unofficial and independent – not made by or affiliated with any printer manufacturer. Formerly called *Druckzentrale*. The interface is in German.
 
 ![Overview](docs/overview.png)
 
 ## Installation
 
-Download the installer for your distribution from the [Releases](https://github.com/LucyWolf/druckzentrale/releases/latest) page and double-click it. The first time, your file manager asks whether it may run the file.
+Download the installer for your distribution from the [Releases](https://github.com/LucyWolf/printdock/releases/latest) page and double-click it. The first time, your file manager asks whether it may run the file.
 
 | Distribution | Installer |
 |---|---|
-| Arch / CachyOS / Manjaro | [`Druckzentrale-arch-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-arch-installer.desktop) |
-| Debian / Ubuntu | [`Druckzentrale-deb-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-deb-installer.desktop) |
-| Everything else (Fedora, openSUSE, …) | [`Druckzentrale-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-installer.desktop) |
+| Arch / CachyOS / Manjaro | [`PrintDock-arch-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-arch-installer.desktop) |
+| Debian / Ubuntu | [`PrintDock-deb-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-deb-installer.desktop) |
+| Everything else (Fedora, openSUSE, …) | [`PrintDock-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-installer.desktop) |
 
 The installer sets up everything with a single password prompt: Qt (PySide6, native Wayland), CUPS, free printer drivers (Gutenprint, Foomatic), Poppler (PDF for fax), SANE with sane-airscan, ipp-usb and Avahi. It turns on the printing service and network discovery, installs the app and adds a menu entry. Running it again offers **Update** or **Uninstall**.
 
@@ -26,14 +26,14 @@ The installer sets up everything with a single password prompt: Qt (PySide6, nat
 <summary>Prefer the terminal?</summary>
 
 ```bash
-curl -fsSL -o Druckzentrale-installieren.sh https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-installieren.sh
-bash Druckzentrale-installieren.sh
+curl -fsSL -o PrintDock-installieren.sh https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-installieren.sh
+bash PrintDock-installieren.sh
 ```
 </details>
 
 ### Updates
 
-Click **Version · Info** at the bottom left, then **Check for updates**. If a new version exists, a button also appears at the bottom left on its own. Installations of the former *HP Druckzentrale* move themselves over on the first start (program, menu entry, settings).
+Click **Version · Info** at the bottom left, then **Check for updates**. If a new version exists, a button also appears at the bottom left on its own. Installations of the former *Druckzentrale* or *HP Druckzentrale* move themselves over on the first start (program, menu entry, settings).
 
 ## Getting started
 
@@ -62,34 +62,34 @@ Other printers should work through the standards (IPP Everywhere/AirPrint for pr
 ## Running from source
 
 ```bash
-python3 druckzentrale.py
+python3 printdock.py
 ```
 
 Needs PySide6, pycups and Pillow; the installer pulls in everything else.
 
-**Releases:** raise `APP_VERSION` in `druckzentrale.py` (the last digit counts up to 99) and push to `main` – also works in the GitHub web editor. A workflow checks the code and the installer script and publishes the release with the program and all installers. Without a new version number nothing is released.
+**Releases:** raise `APP_VERSION` in `printdock.py` (the last digit counts up to 99) and push to `main` – also works in the GitHub web editor. A workflow checks the code and the installer script and publishes the release with the program and all installers. Without a new version number nothing is released.
 
 License: MIT, see [LICENSE](LICENSE).
 
 ---
 
-# Druckzentrale
+# PrintDock
 
 Drucken, Scannen, Faxen, Tinte oder Toner und Wartung – für **Drucker unter Linux**, in einem einfachen Fenster. Funktioniert über **USB, LAN und WLAN** und mit Druckern jedes Herstellers, den Linux unterstützt. Eigenständig: keine Herstellersoftware nötig – bei HP-Druckern laufen Fax, Druckkopfreinigung und Berichte direkt über die eingebaute Schnittstelle des Druckers.
 
-Inoffiziell und unabhängig – nicht von einem Druckerhersteller und nicht mit einem verbunden.
+Inoffiziell und unabhängig – nicht von einem Druckerhersteller und nicht mit einem verbunden. Früher hieß es *Druckzentrale*.
 
 ![Übersicht](docs/overview.png)
 
 ## Installation
 
-Den Installer für deine Distribution von der [Releases](https://github.com/LucyWolf/druckzentrale/releases/latest)-Seite herunterladen und doppelklicken. Beim ersten Mal fragt der Dateimanager, ob er die Datei ausführen darf.
+Den Installer für deine Distribution von der [Releases](https://github.com/LucyWolf/printdock/releases/latest)-Seite herunterladen und doppelklicken. Beim ersten Mal fragt der Dateimanager, ob er die Datei ausführen darf.
 
 | Distribution | Installer |
 |---|---|
-| Arch / CachyOS / Manjaro | [`Druckzentrale-arch-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-arch-installer.desktop) |
-| Debian / Ubuntu | [`Druckzentrale-deb-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-deb-installer.desktop) |
-| Alle anderen (Fedora, openSUSE, …) | [`Druckzentrale-installer.desktop`](https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-installer.desktop) |
+| Arch / CachyOS / Manjaro | [`PrintDock-arch-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-arch-installer.desktop) |
+| Debian / Ubuntu | [`PrintDock-deb-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-deb-installer.desktop) |
+| Alle anderen (Fedora, openSUSE, …) | [`PrintDock-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-installer.desktop) |
 
 Der Installer richtet alles mit einer einzigen Passwortabfrage ein: Qt (PySide6, nativ unter Wayland), CUPS, freie Druckertreiber (Gutenprint, Foomatic), Poppler (PDF fürs Fax), SANE mit sane-airscan, ipp-usb und Avahi. Er schaltet Druckdienst und Netzwerksuche ein, installiert die App und legt einen Menüeintrag an. Erneut gestartet bietet er **Aktualisieren** oder **Deinstallieren** an.
 
@@ -97,14 +97,14 @@ Der Installer richtet alles mit einer einzigen Passwortabfrage ein: Qt (PySide6,
 <summary>Lieber per Terminal?</summary>
 
 ```bash
-curl -fsSL -o Druckzentrale-installieren.sh https://github.com/LucyWolf/druckzentrale/releases/latest/download/Druckzentrale-installieren.sh
-bash Druckzentrale-installieren.sh
+curl -fsSL -o PrintDock-installieren.sh https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-installieren.sh
+bash PrintDock-installieren.sh
 ```
 </details>
 
 ### Updates
 
-Links unten auf **Version · Info** klicken, dann **Nach Updates suchen**. Gibt es eine neue Version, erscheint links unten auch von selbst ein Knopf dafür. Installationen der früheren *HP Druckzentrale* ziehen beim ersten Start selbst um (Programm, Menüeintrag, Einstellungen).
+Links unten auf **Version · Info** klicken, dann **Nach Updates suchen**. Gibt es eine neue Version, erscheint links unten auch von selbst ein Knopf dafür. Installationen der früheren *Druckzentrale* bzw. *HP Druckzentrale* ziehen beim ersten Start selbst um (Programm, Menüeintrag, Einstellungen).
 
 ## Erste Schritte
 
@@ -133,11 +133,11 @@ Andere Drucker sollten über die Standards (IPP Everywhere/AirPrint zum Drucken,
 ## Aus dem Quellcode starten
 
 ```bash
-python3 druckzentrale.py
+python3 printdock.py
 ```
 
 Braucht PySide6, pycups und Pillow; alles andere holt der Installer.
 
-**Releases:** `APP_VERSION` in `druckzentrale.py` erhöhen (die letzte Stelle zählt bis 99) und auf `main` hochladen – geht auch direkt im GitHub-Editor. Ein Workflow prüft Programm und Installationsskript und veröffentlicht das Release mit Programm und allen Installern. Ohne neue Versionsnummer wird nichts veröffentlicht.
+**Releases:** `APP_VERSION` in `printdock.py` erhöhen (die letzte Stelle zählt bis 99) und auf `main` hochladen – geht auch direkt im GitHub-Editor. Ein Workflow prüft Programm und Installationsskript und veröffentlicht das Release mit Programm und allen Installern. Ohne neue Versionsnummer wird nichts veröffentlicht.
 
 Lizenz: MIT, siehe [LICENSE](LICENSE).

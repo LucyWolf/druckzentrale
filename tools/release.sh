@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Neues Release: APP_VERSION in druckzentrale.py erhöhen (letzte Stelle zählt bis 99), committen, dann
+# Neues Release: APP_VERSION in printdock.py erhöhen (letzte Stelle zählt bis 99), committen, dann
 # dieses Skript (oder einfach git push). Das Release erstellt der GitHub-Workflow .github/workflows/release.yml.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-REPO=LucyWolf/druckzentrale
-VER=$(grep -oP '^APP_VERSION = "\K[0-9.]+' druckzentrale.py)
+REPO=LucyWolf/printdock
+VER=$(grep -oP '^APP_VERSION = "\K[0-9.]+' printdock.py)
 [ -z "$(git status --porcelain)" ] || { echo "Ungespeicherte Änderungen – erst committen."; exit 1; }
 git push -q
 echo "Hochgeladen – GitHub prüft und erstellt v$VER …"
