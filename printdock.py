@@ -28,7 +28,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.35"
+APP_VERSION = "1.0.36"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -108,6 +108,7 @@ class Printer:
         self.serial = ""
         self.host = ""          # IP-Adresse im Netz (fuer Weboberflaeche und direkte IPP-Abfrage)
         self.fax = None         # kann PC-Fax (None = noch nicht geprueft)
+        self.template = None    # Druckervorlage (nicht gespeichert, liegt als Datei vor)
 
     @property
     def uri(self):
@@ -347,15 +348,96 @@ def marker_color(m):
     return ["#888888"]
 
 
+# ---------- Druckervorlagen ----------
+# Je Modell eine kleine Vorlage im GitHub-Projekt (vorlagen/<modell>.json). PrintDock laedt nur die Vorlage des
+# Druckers, der gerade eingebunden wird, und merkt sie sich; gibt es keine, gilt STANDARD_TEMPLATE.
+# Treiberpakete installiert PrintDock erst, wenn ein Drucker sie wirklich braucht (aeltere Geraete ohne IPP).
+TEMPLATE_URL = "https://raw.githubusercontent.com/{repo}/main/vorlagen/{slug}.json"
+TEMPLATE_DIR = os.path.expanduser("~/.local/share/printdock/vorlagen")
+STANDARD_TEMPLATE = {
+    "name": "Standard",
+    # nur fuer Drucker ohne treiberloses Drucken; freie Treiber fuer sehr viele aeltere Geraete
+    "treiber": {"arch": ["gutenprint", "foomatic-db-engine", "foomatic-db", "foomatic-db-ppds"],
+                "deb": ["printer-driver-gutenprint", "foomatic-db-compressed-ppds"],
+                "rpm": ["gutenprint-cups", "foomatic-db", "foomatic-db-ppds"],
+                "suse": ["gutenprint", "OpenPrintingPPDs"]},
+    "treiber_suche": None,   # Suchbegriff fuer den Treiber; None = Modellname
+    "papier": "iso_a4_210x297mm",
+    "beidseitig": True,
+    "fax": None,             # True/False legt fest, None = beim Drucker nachsehen
+    "wartung": None,         # Liste erlaubter Wartungsauftraege, None = alles, was der Drucker anbietet
+    "hinweise": [],
+}
+
+
+def template_slug(p):
+    return re.sub(r"[^a-z0-9]+", "-", real_name(p).lower()).strip("-") or "drucker"
+
+
+def get_template(p):
+    """Gemerkte Vorlage des Druckers (ohne Netz); sonst Standard."""
+    try:
+        with open(os.path.join(TEMPLATE_DIR, template_slug(p) + ".json"), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = {}
+    return dict(STANDARD_TEMPLATE, **{k: v for k, v in data.items() if k in STANDARD_TEMPLATE})
+
+
+def fetch_template(p):
+    """Einmal je Modell: passende Vorlage herunterladen und merken (auch „keine vorhanden“ wird gemerkt)."""
+    path = os.path.join(TEMPLATE_DIR, template_slug(p) + ".json")
+    if not os.path.exists(path):
+        url = TEMPLATE_URL.format(repo=UPDATE_REPO, slug=template_slug(p))
+        try:
+            with urllib.request.urlopen(url, timeout=10) as r:
+                data = json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            data = {} if e.code == 404 else None   # 404: fuer dieses Modell gibt es keine Vorlage
+        except (OSError, ValueError):
+            data = None                            # kein Netz: beim naechsten Mal nochmal versuchen
+        if data is not None:
+            os.makedirs(TEMPLATE_DIR, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=1)
+    return get_template(p)
+
+
+def package_tool():
+    """(Kennung, Installationsbefehl, Pruefbefehl) der Paketverwaltung dieses Systems."""
+    for exe, key, install, have in (
+            ("pacman", "arch", ["pacman", "-S", "--needed", "--noconfirm"], ["pacman", "-Q"]),
+            ("apt-get", "deb", ["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y"], ["dpkg", "-s"]),
+            ("dnf", "rpm", ["dnf", "install", "-y"], ["rpm", "-q"]),
+            ("zypper", "suse", ["zypper", "--non-interactive", "install"], ["rpm", "-q"])):
+        if shutil.which(exe):
+            return key, install, have
+    return None, None, None
+
+
+def ensure_packages(by_distro):
+    """Fehlende Pakete aus {"arch": [...], "deb": [...], ...} mit einer Passwortabfrage nachinstallieren."""
+    key, install, have = package_tool()
+    if not key:
+        return
+    missing = [x for x in (by_distro or {}).get(key, []) if run(have + [x], 30)[0] != 0]
+    if missing:
+        rc, out, err = run(["pkexec"] + install + missing, 1800)
+        if rc != 0:
+            raise RuntimeError("Treiber nicht installiert: " + " ".join(missing))
+
+
 # ---------- Einrichten ----------
 def setup_printer(p):
     uri = p.best_setup_uri()
     name = re.sub(r"[^A-Za-z0-9_-]+", "_", p.model or p.info or "Drucker").strip("_")[:60] or "Drucker"
     cmd = ["pkexec", "lpadmin", "-p", name, "-E", "-v", uri, "-m", "everywhere"]
     if not uri.startswith(("ipp://", "ipps://", "dnssd://")):
-        # Ohne IPP (aeltere USB- oder Netzwerkdrucker): passenden Treiber aus allen installierten suchen
-        # (Gutenprint, Foomatic …). CUPS markiert den empfohlenen.
-        rc, out, _ = run(["lpinfo", "--make-and-model", p.model or p.info, "-m"], 30)
+        # Ohne IPP (aeltere USB- oder Netzwerkdrucker): erst jetzt die Treiber laut Vorlage installieren,
+        # dann den passenden aus den installierten suchen. CUPS markiert den empfohlenen.
+        tmpl = fetch_template(p)
+        ensure_packages(tmpl.get("treiber"))
+        rc, out, _ = run(["lpinfo", "--make-and-model", tmpl.get("treiber_suche") or p.model or p.info, "-m"], 30)
         lines = [l for l in out.splitlines() if l.strip()]
         best = next((l for l in lines if "recommended" in l.lower()), None) or \
             next((l for l in lines if "gutenprint" in l.lower()), None) or (lines[0] if lines else None)
@@ -1537,7 +1619,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if p.host:
             form.addRow("Adresse", QtWidgets.QLabel(p.host))
         form.addRow("Warteschlange", QtWidgets.QLabel(p.queue or "noch nicht eingerichtet"))
+        tmpl = get_template(p)
+        form.addRow("Vorlage", QtWidgets.QLabel(tmpl.get("name", "Standard")))
         dl.addLayout(form)
+        self.ov_hints = QtWidgets.QVBoxLayout()
+        dl.addLayout(self.ov_hints)
         self.ov_body.addWidget(dev)
         self.ov_body.addStretch(1)
         cached = self.status_cache.get(printer_key(p))
@@ -1729,8 +1815,11 @@ class MainWindow(QtWidgets.QMainWindow):
                                        "Bei Streifen oder blassen Farben. Druckt eine Seite; danach fragt die App, "
                                        "ob eine gründlichere Reinigung nötig ist.",
                                        lambda _=False: self.start_cleaning(p, ip, levels))
+                allowed = get_template(p).get("wartung")
                 for job in res["ledm"]:
                     if job in CLEAN_LEVELS or job not in LEDM_LABELS or LEDM_LABELS[job][1] in seen:
+                        continue
+                    if allowed is not None and job not in allowed:
                         continue
                     kind, text, desc = LEDM_LABELS[job]
                     seen.add(text)
@@ -1946,7 +2035,37 @@ class MainWindow(QtWidgets.QMainWindow):
         if p:
             self.refresh_status()
             self.match_scanner()
-            self.check_fax(p)
+            self.load_template(p)
+
+    def load_template(self, p):
+        """Vorlage des Modells: gemerkte sofort anwenden, sonst einmal herunterladen."""
+        self.apply_template(p, get_template(p))
+
+        def done(ok, tmpl):
+            if ok and p is self.current:
+                self.apply_template(p, tmpl)
+            if p is self.current:
+                self.check_fax(p)
+        bg(lambda: fetch_template(p), done)
+
+    def apply_template(self, p, tmpl):
+        p.template = tmpl
+        if tmpl.get("fax") is not None:
+            p.fax = bool(tmpl["fax"])
+            self.sync_tiles()
+        self.sides.setChecked(bool(tmpl.get("beidseitig", True)))
+        i = self.media.findData(tmpl.get("papier"))
+        if i >= 0:
+            self.media.setCurrentIndex(i)
+        try:
+            self.clear(self.ov_hints)
+            for h in tmpl.get("hinweise") or []:
+                lab = QtWidgets.QLabel("ℹ  " + h)
+                lab.setObjectName("dim")
+                lab.setWordWrap(True)
+                self.ov_hints.addWidget(lab)
+        except (AttributeError, RuntimeError):
+            pass
 
     def check_fax(self, p):
         """Einmal je Drucker pruefen, ob er PC-Fax kann; das Ergebnis wird gemerkt."""

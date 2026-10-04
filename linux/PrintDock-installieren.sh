@@ -2,7 +2,8 @@
 # PrintDock (früher Druckzentrale) — Linux-Installer
 # Per Doppelklick (ueber PrintDock-*-installer.desktop) oder im Terminal.
 # Installiert alles, was die App braucht, mit einer einzigen Passwortabfrage:
-#   Pakete (Qt mit Wayland-Modul, CUPS, freie Druckertreiber, SANE + sane-airscan, ipp-usb, Avahi),
+#   Pakete (Qt mit Wayland-Modul, CUPS, SANE + sane-airscan, ipp-usb, Avahi). Druckertreiber holt PrintDock
+#   erst, wenn ein Drucker sie braucht (laut seiner Vorlage),
 #   Druck- und Netzwerkdienste,
 #   die App selbst nach ~/.local/share und einen Menueeintrag.
 # Ist sie schon installiert, fragt das Skript: aktualisieren oder deinstallieren.
@@ -100,23 +101,23 @@ fi
 
 # 2) Pakete je Distribution. Alles in einem Root-Schritt (ein Passwort).
 if command -v pacman >/dev/null 2>&1; then
-    PKGS="pyside6 qt6-wayland python-pycups python-pillow cups cups-filters gutenprint foomatic-db foomatic-db-engine foomatic-db-ppds poppler sane sane-airscan ipp-usb avahi nss-mdns"
+    PKGS="pyside6 qt6-wayland python-pycups python-pillow cups cups-filters poppler sane sane-airscan ipp-usb avahi nss-mdns"
     HAVE="pacman -Q"
     INSTALL="pacman -S --needed --noconfirm"
 elif command -v apt-get >/dev/null 2>&1; then
-    PKGS="qt6-wayland python3-pyside6.qtwidgets python3-pyside6.qtgui python3-pyside6.qtcore python3-cups python3-pil cups cups-filters printer-driver-gutenprint foomatic-db-compressed-ppds poppler-utils sane-utils sane-airscan ipp-usb avahi-daemon libnss-mdns"
+    PKGS="qt6-wayland python3-pyside6.qtwidgets python3-pyside6.qtgui python3-pyside6.qtcore python3-cups python3-pil cups cups-filters poppler-utils sane-utils sane-airscan ipp-usb avahi-daemon libnss-mdns"
     HAVE="dpkg -s"
     INSTALL="env DEBIAN_FRONTEND=noninteractive apt-get install -y"
 elif command -v dnf >/dev/null 2>&1; then
-    PKGS="python3-pyside6 qt6-qtwayland python3-cups python3-pillow cups cups-filters gutenprint-cups foomatic-db foomatic-db-ppds poppler-utils sane-backends sane-airscan ipp-usb avahi nss-mdns"
+    PKGS="python3-pyside6 qt6-qtwayland python3-cups python3-pillow cups cups-filters poppler-utils sane-backends sane-airscan ipp-usb avahi nss-mdns"
     HAVE="rpm -q"
     INSTALL="dnf install -y"
 elif command -v zypper >/dev/null 2>&1; then
-    PKGS="python3-pyside6 qt6-wayland python3-pycups python3-Pillow cups cups-filters gutenprint OpenPrintingPPDs poppler-tools sane-backends sane-airscan ipp-usb avahi nss-mdns"
+    PKGS="python3-pyside6 qt6-wayland python3-pycups python3-Pillow cups cups-filters poppler-tools sane-backends sane-airscan ipp-usb avahi nss-mdns"
     HAVE="rpm -q"
     INSTALL="zypper --non-interactive install"
 else
-    fail "Unbekannte Paketverwaltung.\nBitte von Hand installieren: PySide6, pycups, Pillow, CUPS, Gutenprint, SANE, sane-airscan, ipp-usb, Avahi."
+    fail "Unbekannte Paketverwaltung.\nBitte von Hand installieren: PySide6, pycups, Pillow, CUPS, SANE, sane-airscan, ipp-usb, Avahi."
 fi
 
 MISSING=""

@@ -20,7 +20,7 @@ Download the installer for your distribution from the [Releases](https://github.
 | Debian / Ubuntu | [`PrintDock-deb-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-deb-installer.desktop) |
 | Everything else (Fedora, openSUSE, …) | [`PrintDock-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-installer.desktop) |
 
-The installer sets up everything with a single password prompt: Qt (PySide6, native Wayland), CUPS, free printer drivers (Gutenprint, Foomatic), Poppler (PDF for fax), SANE with sane-airscan, ipp-usb and Avahi. It turns on the printing service and network discovery, installs the app and adds a menu entry. Running it again offers **Update** or **Uninstall**.
+The installer sets up everything with a single password prompt: Qt (PySide6, native Wayland), CUPS, Poppler (PDF for fax), SANE with sane-airscan, ipp-usb and Avahi. Printer drivers are only installed when a printer actually needs one (see *Printer templates*). It turns on the printing service and network discovery, installs the app and adds a menu entry. Running it again offers **Update** or **Uninstall**.
 
 <details>
 <summary>Prefer the terminal?</summary>
@@ -53,11 +53,15 @@ The sidebar lists your printers; the dot shows the state (green ready, orange me
 
 ![Scan](docs/scan.png)
 
+## Printer templates
+
+When a printer is added, PrintDock downloads **only the template for that model** from [`vorlagen/`](vorlagen/) and remembers it. It knows whether a driver is needed, which maintenance and fax functions exist, default paper and quirks. Without a template the standard applies: everything is asked from the printer itself, and only printers without driverless printing get the free drivers (Gutenprint, Foomatic). New templates are available to everyone as soon as they are uploaded.
+
 ## Tested printers
 
 - HP OfficeJet Pro 8620
 
-Other printers should work through the standards (IPP Everywhere/AirPrint for printing, eSCL for scanning) but have not been tried yet. Older printers without these standards need a driver; the free ones come with the installer, others only from the manufacturer. Printhead cleaning and reports are available for HP printers with a built-in web interface. Fax works with HP printers that offer PC fax through their built-in interface.
+Other printers should work through the standards (IPP Everywhere/AirPrint for printing, eSCL for scanning) but have not been tried yet. Older printers without these standards need a driver; PrintDock installs the free ones when needed, others are only available from the manufacturer. Printhead cleaning and reports are available for HP printers with a built-in web interface. Fax works with HP printers that offer PC fax through their built-in interface.
 
 ## Running from source
 
@@ -91,7 +95,7 @@ Den Installer für deine Distribution von der [Releases](https://github.com/Lucy
 | Debian / Ubuntu | [`PrintDock-deb-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-deb-installer.desktop) |
 | Alle anderen (Fedora, openSUSE, …) | [`PrintDock-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-installer.desktop) |
 
-Der Installer richtet alles mit einer einzigen Passwortabfrage ein: Qt (PySide6, nativ unter Wayland), CUPS, freie Druckertreiber (Gutenprint, Foomatic), Poppler (PDF fürs Fax), SANE mit sane-airscan, ipp-usb und Avahi. Er schaltet Druckdienst und Netzwerksuche ein, installiert die App und legt einen Menüeintrag an. Erneut gestartet bietet er **Aktualisieren** oder **Deinstallieren** an.
+Der Installer richtet alles mit einer einzigen Passwortabfrage ein: Qt (PySide6, nativ unter Wayland), CUPS, Poppler (PDF fürs Fax), SANE mit sane-airscan, ipp-usb und Avahi. Druckertreiber kommen nur dazu, wenn ein Drucker wirklich einen braucht (siehe *Druckervorlagen*). Er schaltet Druckdienst und Netzwerksuche ein, installiert die App und legt einen Menüeintrag an. Erneut gestartet bietet er **Aktualisieren** oder **Deinstallieren** an.
 
 <details>
 <summary>Lieber per Terminal?</summary>
@@ -124,11 +128,15 @@ Die Seitenleiste zeigt deine Drucker; der Punkt zeigt den Zustand (grün bereit,
 
 ![Scannen](docs/scan.png)
 
+## Druckervorlagen
+
+Beim Einbinden lädt PrintDock **nur die Vorlage dieses Modells** aus [`vorlagen/`](vorlagen/) und merkt sie sich. Darin steht, ob ein Treiber nötig ist, welche Wartung und ob Fax es gibt, das Standardpapier und Besonderheiten. Ohne Vorlage gilt der Standard: alles wird beim Drucker selbst abgefragt, und nur Drucker ohne treiberloses Drucken bekommen die freien Treiber (Gutenprint, Foomatic). Neue Vorlagen sind nach dem Hochladen sofort für alle da.
+
 ## Getestete Drucker
 
 - HP OfficeJet Pro 8620
 
-Andere Drucker sollten über die Standards (IPP Everywhere/AirPrint zum Drucken, eSCL zum Scannen) funktionieren, sind aber noch nicht ausprobiert. Ältere Drucker ohne diese Standards brauchen einen Treiber; die freien bringt der Installer mit, andere gibt es nur beim Hersteller. Druckkopfreinigung und Berichte gibt es bei HP-Druckern mit eingebauter Weboberfläche. Fax geht bei HP-Druckern, die PC-Fax über ihre eingebaute Schnittstelle anbieten.
+Andere Drucker sollten über die Standards (IPP Everywhere/AirPrint zum Drucken, eSCL zum Scannen) funktionieren, sind aber noch nicht ausprobiert. Ältere Drucker ohne diese Standards brauchen einen Treiber; die freien installiert PrintDock bei Bedarf, andere gibt es nur beim Hersteller. Druckkopfreinigung und Berichte gibt es bei HP-Druckern mit eingebauter Weboberfläche. Fax geht bei HP-Druckern, die PC-Fax über ihre eingebaute Schnittstelle anbieten.
 
 ## Aus dem Quellcode starten
 

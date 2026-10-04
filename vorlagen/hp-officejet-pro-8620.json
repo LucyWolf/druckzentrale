@@ -1,0 +1,12 @@
+{
+ "name": "HP OfficeJet Pro 8620",
+ "treiber": {},
+ "papier": "iso_a4_210x297mm",
+ "beidseitig": true,
+ "fax": true,
+ "wartung": ["cleaningVerificationPage", "pqDiagnosticsPage", "lineFeedCalibrationPage", "configurationPage",
+             "usagePage", "diagnosticsPage", "networkDiagnosticPage", "networkSummary", "wirelessNetworkPage"],
+ "hinweise": ["Treiberlos – es wird kein Druckertreiber installiert.",
+              "Vorlageneinzug: beidseitig nur bis A4-Länge, höchstens 300 dpi.",
+              "Fax: Telefonleitung an der Buchse „1-LINE“ hinten am Drucker."]
+}
