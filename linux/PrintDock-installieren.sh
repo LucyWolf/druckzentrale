@@ -26,7 +26,7 @@ fi
 
 # Ohne kdialog/zenity (z. B. frisch installiertes System) gaebe es weder Fenster noch Passwortabfrage:
 # dann sich selbst in einem Terminal oeffnen, dort ist alles sichtbar.
-if [ "$GUI" = "0" ] && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && [ ! -t 0 ] && [ -z "${IN_TERMINAL:-}" ]; then
+open_in_terminal() {
     SELF="$(readlink -f "$0")"
     export IN_TERMINAL=1
     for t in konsole gnome-terminal kgx ptyxis xfce4-terminal alacritty kitty foot wezterm xterm; do
@@ -39,6 +39,9 @@ if [ "$GUI" = "0" ] && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && [ ! -t 0 ] &
             *) exec "$t" -e bash "$SELF" ;;
         esac
     done
+}
+if [ "$GUI" = "0" ] && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && [ ! -t 0 ] && [ -z "${IN_TERMINAL:-}" ]; then
+    open_in_terminal
 fi
 pause_in_terminal() { [ -n "${IN_TERMINAL:-}" ] && [ -t 0 ] && read -rp "Enter zum Schließen " _ || true; }
 
@@ -111,7 +114,7 @@ if [ -f "$INSTALL_DIR/printdock.py" ] || [ -f "$HOME/.local/share/druckzentrale/
     case "$CHOICE" in
         0) ;;
         1) uninstall ;;
-        *) exit 0 ;;
+        *) info "Abgebrochen – es wurde nichts verändert."; pause_in_terminal; exit 0 ;;
     esac
 fi
 
@@ -169,11 +172,22 @@ if [ -n "$MISSING" ] || [ -n "$SERVICES" ]; then
     [ -n "$MISSING" ] && MSG="$MSG\n\nPakete:$MISSING"
     [ -n "$SERVICES" ] && MSG="$MSG\n\nDienste einschalten:$SERVICES"
     MSG="$MSG\n\nDanach fragt ein Fenster einmal nach deinem Passwort."
+    printf '%b\n\n' "$MSG"
+    # Antwortet das Fenster nicht (z.B. kaputte Desktop-Sitzung), im Terminal fragen statt stumm aufhoeren
+    ANSWER=""
     case "$GUI" in
-        1) kdialog --title "$TITLE" --continuecancel "$(printf '%b' "$MSG")" || exit 0 ;;
-        2) zenity --question --title="$TITLE" --text="$MSG" --width=420 || exit 0 ;;
-        *) printf '%b\n' "$MSG" ;;
+        1) kdialog --title "$TITLE" --continuecancel "$(printf '%b' "$MSG")" && ANSWER=ja || ANSWER=nein ;;
+        2) zenity --question --title="$TITLE" --text="$MSG" --width=420 && ANSWER=ja || ANSWER=nein ;;
     esac
+    if [ "$ANSWER" = "nein" ] || [ -z "$ANSWER" ]; then
+        if [ -t 0 ]; then
+            read -rp "Jetzt einrichten? [J/n] " A
+            case "${A:-j}" in j|J|y|Y|"") ANSWER=ja ;; *) ANSWER=nein ;; esac
+        elif [ "$ANSWER" = "nein" ] && [ -z "${IN_TERMINAL:-}" ]; then
+            open_in_terminal   # Fenster ging nicht: im Terminal weitermachen, dort sieht man alles
+        fi
+    fi
+    [ "$ANSWER" = "ja" ] || { info "Abgebrochen – es wurde nichts verändert."; pause_in_terminal; exit 0; }
     note "Installiere Pakete – das kann ein paar Minuten dauern …"
     ROOT_CMD=""
     [ -n "$MISSING" ] && ROOT_CMD="$INSTALL$MISSING"
