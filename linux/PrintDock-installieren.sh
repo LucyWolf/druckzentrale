@@ -50,6 +50,7 @@ info() {
     esac
 }
 fail() {
+    trap - ERR
     case "$GUI" in
         1) kdialog --title "$TITLE" --error "$(printf '%b' "$1")" ;;
         2) zenity --error --title="$TITLE" --text="$1" --width=380 ;;
@@ -65,6 +66,17 @@ note() {
         *) echo "$1" ;;
     esac
 }
+# Protokoll: jeder Schritt landet hier, damit ein Abbruch nachvollziehbar ist
+LOG="$HOME/.cache/printdock-installer.log"
+mkdir -p "$(dirname "$LOG")"
+{ echo; echo "=== $(date) – $0 – GUI=$GUI – Terminal: $([ -t 0 ] && echo ja || echo nein)"; } >> "$LOG"
+exec {LOGFD}>>"$LOG"
+BASH_XTRACEFD=$LOGFD
+set -x -E   # -E: Abbruchmeldung auch bei Fehlern in Funktionen
+# Bricht ein Befehl unerwartet ab, nicht still verschwinden, sondern melden
+# (nur im Hauptskript melden, nicht zusaetzlich aus $(...)-Unterprozessen – sonst kaeme die Meldung doppelt)
+trap 'if [ "$BASH_SUBSHELL" = 0 ]; then fail "Der Installer ist unerwartet abgebrochen (Zeile $LINENO).\n\nProtokoll: $LOG"; fi' ERR
+
 as_root() {
     # im Terminal sudo (Passwort dort eingeben), sonst das Passwortfenster des Systems
     if [ ! -t 0 ] && command -v pkexec >/dev/null 2>&1; then
@@ -115,7 +127,7 @@ if [ -z "$APP_SRC" ]; then
     TMP_APP="$(mktemp)"
     trap 'rm -f "$TMP_APP"' EXIT
     note "Lade die neueste Version herunter …"
-    curl -fsSL --retry 2 -o "$TMP_APP" "$RELEASE_URL/printdock.py" \
+    curl -fsSL --retry 2 --connect-timeout 20 --max-time 300 -o "$TMP_APP" "$RELEASE_URL/printdock.py" \
         || fail "Download fehlgeschlagen.\nBesteht eine Internetverbindung?"
     APP_SRC="$TMP_APP"
 fi
