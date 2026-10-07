@@ -24,6 +24,24 @@ elif command -v zenity >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}
     GUI=2
 fi
 
+# Ohne kdialog/zenity (z. B. frisch installiertes System) gaebe es weder Fenster noch Passwortabfrage:
+# dann sich selbst in einem Terminal oeffnen, dort ist alles sichtbar.
+if [ "$GUI" = "0" ] && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && [ ! -t 0 ] && [ -z "${IN_TERMINAL:-}" ]; then
+    SELF="$(readlink -f "$0")"
+    export IN_TERMINAL=1
+    for t in konsole gnome-terminal kgx ptyxis xfce4-terminal alacritty kitty foot wezterm xterm; do
+        command -v "$t" >/dev/null 2>&1 || continue
+        case "$t" in
+            gnome-terminal|kgx|ptyxis) exec "$t" -- bash "$SELF" ;;
+            xfce4-terminal) exec "$t" -x bash "$SELF" ;;
+            kitty|foot) exec "$t" bash "$SELF" ;;
+            wezterm) exec "$t" start -- bash "$SELF" ;;
+            *) exec "$t" -e bash "$SELF" ;;
+        esac
+    done
+fi
+pause_in_terminal() { [ -n "${IN_TERMINAL:-}" ] && [ -t 0 ] && read -rp "Enter zum Schließen " _ || true; }
+
 info() {
     case "$GUI" in
         1) kdialog --title "$TITLE" --msgbox "$(printf '%b' "$1")" ;;
@@ -37,6 +55,7 @@ fail() {
         2) zenity --error --title="$TITLE" --text="$1" --width=380 ;;
         *) printf 'FEHLER: %b\n' "$1" >&2 ;;
     esac
+    pause_in_terminal
     exit 1
 }
 note() {
@@ -47,7 +66,8 @@ note() {
     esac
 }
 as_root() {
-    if [ "$GUI" != "0" ] && command -v pkexec >/dev/null 2>&1; then
+    # im Terminal sudo (Passwort dort eingeben), sonst das Passwortfenster des Systems
+    if [ ! -t 0 ] && command -v pkexec >/dev/null 2>&1; then
         pkexec /bin/sh -c "$1"
     else
         sudo /bin/sh -c "$1"
@@ -59,6 +79,7 @@ uninstall() {
     rm -f "$DESKTOP_FILE" $OLD_DESKTOP_FILES
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$HOME/.local/share/applications" || true
     info "PrintDock wurde entfernt.\n\nDie Pakete (CUPS, SANE …) und eingerichtete Drucker bleiben erhalten,\nandere Programme nutzen sie auch."
+    pause_in_terminal
     exit 0
 }
 
@@ -178,4 +199,6 @@ StartupWMClass=printdock
 DESKTOP
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$HOME/.local/share/applications" || true
 
+trap - EXIT; rm -f "${TMP_APP:-}"
 info "Installation abgeschlossen!\n\nStart über das Anwendungsmenü: PrintDock\n\nUSB-Drucker, die schon stecken: einmal ab- und wieder anstecken."
+pause_in_terminal
